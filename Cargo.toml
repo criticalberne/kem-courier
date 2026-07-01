@@ -1,12 +1,12 @@
 [package]
-name = "kem-courier"
+name = "qstg"
 version = "0.1.0"
 edition = "2024"
-description = "CLI-first post-quantum secure file exchange prototype with enterprise PAM-style controls"
+description = "Quantum-safe AI trust gateway with PQC evidence envelopes and policy controls"
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/criticalberne/kem-courier"
+repository = "https://github.com/criticalberne/quantum-safe-ai-trust-gateway"
 readme = "README.md"
-keywords = ["post-quantum", "ml-kem", "ml-dsa", "file-encryption", "pam"]
+keywords = ["post-quantum", "ml-kem", "ml-dsa", "ai-security", "cryptography"]
 categories = ["command-line-utilities", "cryptography"]
 
 [dependencies]

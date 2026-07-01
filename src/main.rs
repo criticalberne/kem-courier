@@ -30,11 +30,11 @@ type DsaVerifyingKey = VerifyingKey<MlDsa65>;
 const VERSION: u8 = 1;
 const SUITE_PQC_ONLY: &str = "KEMCOURIER_MLKEM768_AES256GCM_MLDSA65_HKDFSHA256_V1";
 const SUITE_HYBRID: &str = "KEMCOURIER_MLKEM768_X25519_AES256GCM_MLDSA65_HKDFSHA256_V1";
-const AUDIT_LOG: &str = "kem-courier.audit.jsonl";
+const AUDIT_LOG: &str = "qstg.audit.jsonl";
 
 #[derive(Parser, Debug)]
-#[command(name = "kem-courier")]
-#[command(about = "Post-quantum secure file exchange with PAM-style controls")]
+#[command(name = "qstg")]
+#[command(about = "Quantum-safe AI trust gateway with KEM Courier PQC envelopes")]
 struct Cli {
     #[command(subcommand)]
     command: Command,
@@ -55,6 +55,10 @@ enum Command {
         #[command(subcommand)]
         command: AuditCommand,
     },
+    Ai {
+        #[command(subcommand)]
+        command: AiCommand,
+    },
     Tamper(TamperArgs),
 }
 
@@ -73,6 +77,12 @@ enum IdentityCommand {
 enum AuditCommand {
     Show,
     Verify,
+}
+
+#[derive(Subcommand, Debug)]
+enum AiCommand {
+    /// Evaluate an AI request through model, prompt, tool, data, and PQC policy controls.
+    Evaluate(AiEvaluateArgs),
 }
 
 #[derive(Args, Debug)]
@@ -97,7 +107,7 @@ struct SealArgs {
     identity: PathBuf,
     #[arg(long)]
     out: PathBuf,
-    #[arg(long, env = "KEM_COURIER_PASSPHRASE")]
+    #[arg(long, env = "QSTG_PASSPHRASE")]
     passphrase: String,
 }
 
@@ -111,7 +121,7 @@ struct CheckoutArgs {
     reason: String,
     #[arg(long)]
     out: PathBuf,
-    #[arg(long, env = "KEM_COURIER_PASSPHRASE")]
+    #[arg(long, env = "QSTG_PASSPHRASE")]
     passphrase: Option<String>,
 }
 
@@ -121,7 +131,7 @@ struct RotateArgs {
     identity: PathBuf,
     #[arg(long)]
     out: PathBuf,
-    #[arg(long, env = "KEM_COURIER_PASSPHRASE")]
+    #[arg(long, env = "QSTG_PASSPHRASE")]
     passphrase: Option<String>,
 }
 
@@ -147,7 +157,7 @@ struct EncryptArgs {
     input: PathBuf,
     #[arg(long)]
     out: PathBuf,
-    #[arg(long, env = "KEM_COURIER_PASSPHRASE")]
+    #[arg(long, env = "QSTG_PASSPHRASE")]
     passphrase: Option<String>,
 }
 
@@ -165,7 +175,7 @@ struct DecryptArgs {
     policy: Option<PathBuf>,
     #[arg(long)]
     lease: Option<PathBuf>,
-    #[arg(long, env = "KEM_COURIER_PASSPHRASE")]
+    #[arg(long, env = "QSTG_PASSPHRASE")]
     passphrase: Option<String>,
 }
 
@@ -195,6 +205,28 @@ struct TamperArgs {
     field: String,
     #[arg(long)]
     out: PathBuf,
+}
+
+#[derive(Args, Debug)]
+struct AiEvaluateArgs {
+    #[arg(long)]
+    request: PathBuf,
+    #[arg(long)]
+    policy: PathBuf,
+    #[arg(long)]
+    out: PathBuf,
+    #[arg(long = "access-review-out")]
+    access_review_out: Option<PathBuf>,
+    #[arg(long)]
+    sender: Option<PathBuf>,
+    #[arg(long)]
+    recipient: Option<PathBuf>,
+    #[arg(long = "envelope-out")]
+    envelope_out: Option<PathBuf>,
+    #[arg(long, value_enum, default_value_t = ExchangeMode::HybridX25519Mlkem768)]
+    mode: ExchangeMode,
+    #[arg(long, env = "QSTG_PASSPHRASE")]
+    passphrase: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, ValueEnum, PartialEq, Eq)]
@@ -330,6 +362,113 @@ struct EnvelopeSignature {
     value: String,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+enum DataClassification {
+    Public,
+    Internal,
+    Confidential,
+    Regulated,
+}
+
+impl DataClassification {
+    fn rank(self) -> u8 {
+        match self {
+            DataClassification::Public => 0,
+            DataClassification::Internal => 1,
+            DataClassification::Confidential => 2,
+            DataClassification::Regulated => 3,
+        }
+    }
+
+    fn at_or_above(self, other: DataClassification) -> bool {
+        self.rank() >= other.rank()
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+struct AiRequest {
+    actor: String,
+    model: String,
+    prompt: String,
+    #[serde(default)]
+    context: Option<String>,
+    #[serde(default)]
+    requested_tools: Vec<String>,
+    #[serde(default)]
+    data_classification: Option<DataClassification>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, Default)]
+struct AiTrustPolicy {
+    #[serde(default)]
+    approved_models: Vec<String>,
+    #[serde(default)]
+    blocked_prompt_patterns: Vec<String>,
+    #[serde(default)]
+    tool_rules: Vec<AiToolRule>,
+    #[serde(default)]
+    require_pqc_envelope_for: Vec<DataClassification>,
+    #[serde(default)]
+    controls: Vec<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+struct AiToolRule {
+    name: String,
+    max_classification: DataClassification,
+    #[serde(default)]
+    approval_required_for: Vec<DataClassification>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+struct AiToolDecision {
+    name: String,
+    decision: AiDecision,
+    reason: String,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+enum AiDecision {
+    Allowed,
+    ApprovalRequired,
+    Denied,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+struct AiProvenance {
+    version: u8,
+    request_id: String,
+    actor: String,
+    model: String,
+    data_classification: DataClassification,
+    decision: AiDecision,
+    prompt_injection_detected: bool,
+    reasons: Vec<String>,
+    requested_tools: Vec<String>,
+    tool_decisions: Vec<AiToolDecision>,
+    controls: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    crypto_suite: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    envelope_fingerprint: Option<String>,
+    created_at: DateTime<Utc>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    signature: Option<EnvelopeSignature>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+struct AiArtifact {
+    version: u8,
+    request_id: String,
+    actor: String,
+    model: String,
+    data_classification: DataClassification,
+    response: String,
+    created_at: DateTime<Utc>,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize, Default)]
 struct Policy {
     minimum_encryption_mode: Option<ExchangeMode>,
@@ -389,6 +528,9 @@ fn main() -> Result<()> {
         Command::Audit { command } => match command {
             AuditCommand::Show => audit_show(),
             AuditCommand::Verify => audit_verify(),
+        },
+        Command::Ai { command } => match command {
+            AiCommand::Evaluate(args) => ai_evaluate(args),
         },
         Command::Tamper(args) => tamper(args),
     }
@@ -459,7 +601,7 @@ fn checkout_identity(args: CheckoutArgs) -> Result<()> {
     if let Some(passphrase) = args.passphrase.as_ref() {
         let _ = load_private_identity(&identity, Some(passphrase.as_str()))?;
     } else if identity.sealed_private.is_some() {
-        bail!("sealed identity checkout requires --passphrase or KEM_COURIER_PASSPHRASE");
+        bail!("sealed identity checkout requires --passphrase or QSTG_PASSPHRASE");
     }
     let ttl = parse_ttl(&args.ttl)?;
     let lease = LeaseFile {
@@ -492,7 +634,7 @@ fn checkout_identity(args: CheckoutArgs) -> Result<()> {
 fn rotate_identity(args: RotateArgs) -> Result<()> {
     let old: IdentityFile = read_json(&args.identity)?;
     if old.sealed_private.is_some() && args.passphrase.is_none() {
-        bail!("sealed identity rotation requires --passphrase or KEM_COURIER_PASSPHRASE");
+        bail!("sealed identity rotation requires --passphrase or QSTG_PASSPHRASE");
     }
     let tmp = IdentityGenerateArgs {
         name: old.name,
@@ -524,12 +666,45 @@ fn encrypt(args: EncryptArgs) -> Result<()> {
     let sender: IdentityFile = read_json(&args.sender)?;
     let recipient: PublicIdentity = read_json(&args.recipient)?;
     let sender_private = load_private_identity(&sender, args.passphrase.as_deref())?;
-    let signing_key = dsa_signing_key(&sender_private)?;
-    let recipient_ek = kem_encapsulation_key(&recipient)?;
+    let envelope = build_envelope(
+        &sender,
+        &sender_private,
+        &recipient,
+        args.mode,
+        &fs::read(&args.input).with_context(|| format!("reading {}", args.input.display()))?,
+    )?;
+    write_json(&args.out, &envelope)?;
+    let envelope_bytes = serde_json::to_vec(&envelope)?;
+    append_audit(AuditDraft {
+        event_type: "encrypt".into(),
+        identity_fingerprint: Some(sender.public.fingerprint.clone()),
+        envelope_fingerprint: Some(fingerprint_bytes(&envelope_bytes)),
+        sender_fingerprint: Some(sender.public.fingerprint),
+        recipient_fingerprint: Some(recipient.fingerprint),
+        policy_result: "allowed".into(),
+        reason: None,
+        details: vec![
+            format!("mode={:?}", args.mode),
+            format!("out={}", args.out.display()),
+        ],
+    })?;
+    println!("wrote envelope {}", args.out.display());
+    Ok(())
+}
+
+fn build_envelope(
+    sender: &IdentityFile,
+    sender_private: &PrivateIdentity,
+    recipient: &PublicIdentity,
+    mode: ExchangeMode,
+    plaintext: &[u8],
+) -> Result<Envelope> {
+    let signing_key = dsa_signing_key(sender_private)?;
+    let recipient_ek = kem_encapsulation_key(recipient)?;
     let (kem_ct, pq_shared) = recipient_ek.encapsulate();
 
     let mut ikm: Vec<u8> = pq_shared.as_slice().to_vec();
-    let x25519_ephemeral_public = match args.mode {
+    let x25519_ephemeral_public = match mode {
         ExchangeMode::PqcOnly => None,
         ExchangeMode::HybridX25519Mlkem768 => {
             let eph_secret = X25519StaticSecret::from(random_array::<32>()?);
@@ -541,19 +716,17 @@ fn encrypt(args: EncryptArgs) -> Result<()> {
         }
     };
 
-    let kek = derive_key(b"KEM Courier KEK v1", &ikm, args.mode.suite().as_bytes())?;
+    let kek = derive_key(b"KEM Courier KEK v1", &ikm, mode.suite().as_bytes())?;
     ikm.zeroize();
     let fek = random_array::<32>()?;
-    let plaintext =
-        fs::read(&args.input).with_context(|| format!("reading {}", args.input.display()))?;
-    let aad = aad_for_encryption(args.mode, &sender.public, &recipient);
-    let payload = encrypt_blob(&fek, &plaintext, &aad)?;
+    let aad = aad_for_encryption(mode, &sender.public, recipient);
+    let payload = encrypt_blob(&fek, plaintext, &aad)?;
     let wrapped_key = encrypt_blob(&kek, &fek, &aad)?;
 
     let unsigned = UnsignedEnvelope {
         version: VERSION,
-        suite: args.mode.suite().into(),
-        mode: args.mode,
+        suite: mode.suite().into(),
+        mode,
         created_at: Utc::now(),
         sender: EnvelopeParty {
             name: sender.public.name.clone(),
@@ -572,7 +745,7 @@ fn encrypt(args: EncryptArgs) -> Result<()> {
     };
     let canonical = canonical_bytes(&unsigned)?;
     let sig = signing_key.sign(&canonical);
-    let envelope = Envelope {
+    Ok(Envelope {
         version: unsigned.version,
         suite: unsigned.suite,
         mode: unsigned.mode,
@@ -586,24 +759,7 @@ fn encrypt(args: EncryptArgs) -> Result<()> {
             algorithm: "ML-DSA-65".into(),
             value: b64(sig.to_bytes().as_ref()),
         },
-    };
-    write_json(&args.out, &envelope)?;
-    let envelope_bytes = serde_json::to_vec(&envelope)?;
-    append_audit(AuditDraft {
-        event_type: "encrypt".into(),
-        identity_fingerprint: Some(sender.public.fingerprint.clone()),
-        envelope_fingerprint: Some(fingerprint_bytes(&envelope_bytes)),
-        sender_fingerprint: Some(sender.public.fingerprint),
-        recipient_fingerprint: Some(recipient.fingerprint),
-        policy_result: "allowed".into(),
-        reason: None,
-        details: vec![
-            format!("mode={:?}", args.mode),
-            format!("out={}", args.out.display()),
-        ],
-    })?;
-    println!("wrote envelope {}", args.out.display());
-    Ok(())
+    })
 }
 
 fn decrypt(args: DecryptArgs) -> Result<()> {
@@ -753,6 +909,469 @@ fn access_review(args: AccessReviewArgs) -> Result<()> {
     Ok(())
 }
 
+fn ai_evaluate(args: AiEvaluateArgs) -> Result<()> {
+    let request: AiRequest = read_json(&args.request)?;
+    let policy = read_ai_trust_policy(&args.policy)?;
+    let request_id = Uuid::new_v4().to_string();
+    let classification = classify_ai_request(&request);
+    let mut reasons = Vec::new();
+    let mut prompt_injection_detected = detect_prompt_injection(&request, &policy);
+    if prompt_injection_detected {
+        reasons.push("Prompt injection or exfiltration instruction detected".into());
+    }
+
+    if !policy.approved_models.is_empty() && !policy.approved_models.contains(&request.model) {
+        reasons.push(format!(
+            "Model `{}` is not approved by policy",
+            request.model
+        ));
+    } else {
+        reasons.push(format!("Model `{}` is approved", request.model));
+    }
+
+    let tool_decisions = evaluate_ai_tools(&request, &policy, classification);
+    for tool in tool_decisions
+        .iter()
+        .filter(|tool| tool.decision != AiDecision::Allowed)
+    {
+        reasons.push(format!("Tool `{}`: {}", tool.name, tool.reason));
+    }
+    if request.requested_tools.is_empty() {
+        reasons.push("No tools requested".into());
+    }
+
+    let requires_pqc = policy
+        .require_pqc_envelope_for
+        .iter()
+        .any(|minimum| classification.at_or_above(*minimum));
+    if requires_pqc {
+        reasons.push(format!(
+            "PQC evidence envelope required for {} data",
+            classification_label(classification)
+        ));
+    }
+
+    let mut decision = if prompt_injection_detected
+        || reasons.iter().any(|reason| reason.contains("not approved"))
+        || tool_decisions
+            .iter()
+            .any(|tool| tool.decision == AiDecision::Denied)
+    {
+        AiDecision::Denied
+    } else if tool_decisions
+        .iter()
+        .any(|tool| tool.decision == AiDecision::ApprovalRequired)
+    {
+        AiDecision::ApprovalRequired
+    } else {
+        AiDecision::Allowed
+    };
+
+    let mut envelope_fingerprint = None;
+    let mut crypto_suite = None;
+    if requires_pqc && decision == AiDecision::Allowed {
+        let (Some(sender_path), Some(recipient_path), Some(envelope_out)) = (
+            args.sender.as_ref(),
+            args.recipient.as_ref(),
+            args.envelope_out.as_ref(),
+        ) else {
+            decision = AiDecision::Denied;
+            reasons.push(
+                "PQC envelope was required but --sender, --recipient, or --envelope-out was missing"
+                    .into(),
+            );
+            prompt_injection_detected = prompt_injection_detected || false;
+            let provenance = build_ai_provenance(
+                request_id,
+                &request,
+                classification,
+                decision,
+                prompt_injection_detected,
+                reasons,
+                tool_decisions,
+                policy.controls.clone(),
+                crypto_suite,
+                envelope_fingerprint,
+                None,
+            )?;
+            write_ai_outputs(&args, &provenance)?;
+            append_ai_audit(None, &provenance)?;
+            println!(
+                "AI trust decision: {}",
+                ai_decision_label(provenance.decision)
+            );
+            return Ok(());
+        };
+
+        let sender: IdentityFile = read_json(sender_path)?;
+        let sender_private = load_private_identity(&sender, args.passphrase.as_deref())?;
+        let recipient: PublicIdentity = read_json(recipient_path)?;
+        let artifact = AiArtifact {
+            version: VERSION,
+            request_id: request_id.clone(),
+            actor: request.actor.clone(),
+            model: request.model.clone(),
+            data_classification: classification,
+            response: format!(
+                "Approved AI response placeholder for request {request_id}; sensitive content remains inside the PQC evidence envelope."
+            ),
+            created_at: Utc::now(),
+        };
+        let envelope = build_envelope(
+            &sender,
+            &sender_private,
+            &recipient,
+            args.mode,
+            &serde_json::to_vec_pretty(&artifact)?,
+        )?;
+        write_json(envelope_out, &envelope)?;
+        let envelope_bytes = serde_json::to_vec(&envelope)?;
+        envelope_fingerprint = Some(fingerprint_bytes(&envelope_bytes));
+        crypto_suite = Some(envelope.suite.clone());
+        append_audit(AuditDraft {
+            event_type: "ai_pqc_envelope".into(),
+            identity_fingerprint: Some(sender.public.fingerprint.clone()),
+            envelope_fingerprint: envelope_fingerprint.clone(),
+            sender_fingerprint: Some(sender.public.fingerprint),
+            recipient_fingerprint: Some(recipient.fingerprint),
+            policy_result: ai_decision_label(decision).into(),
+            reason: Some(format!("ai_request_id={request_id}")),
+            details: vec![
+                format!("classification={}", classification_label(classification)),
+                format!("model={}", request.model),
+                format!("out={}", envelope_out.display()),
+            ],
+        })?;
+    }
+
+    let signature = if let Some(sender_path) = args.sender.as_ref() {
+        let sender: IdentityFile = read_json(sender_path)?;
+        let private = load_private_identity(&sender, args.passphrase.as_deref())?;
+        Some(sign_ai_provenance(
+            &sender,
+            &private,
+            &request_id,
+            &request,
+            classification,
+            decision,
+            prompt_injection_detected,
+            &reasons,
+            &tool_decisions,
+            &policy.controls,
+            crypto_suite.clone(),
+            envelope_fingerprint.clone(),
+        )?)
+    } else {
+        None
+    };
+
+    let provenance = build_ai_provenance(
+        request_id,
+        &request,
+        classification,
+        decision,
+        prompt_injection_detected,
+        reasons,
+        tool_decisions,
+        policy.controls,
+        crypto_suite,
+        envelope_fingerprint,
+        signature,
+    )?;
+    write_ai_outputs(&args, &provenance)?;
+    append_ai_audit(args.sender.as_ref(), &provenance)?;
+    println!(
+        "AI trust decision: {}",
+        ai_decision_label(provenance.decision)
+    );
+    Ok(())
+}
+
+fn read_ai_trust_policy(path: &PathBuf) -> Result<AiTrustPolicy> {
+    let content =
+        fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
+    serde_yaml::from_str(&content)
+        .or_else(|_| serde_json::from_str(&content))
+        .with_context(|| format!("parsing AI trust policy {}", path.display()))
+}
+
+fn classify_ai_request(request: &AiRequest) -> DataClassification {
+    if let Some(classification) = request.data_classification {
+        return classification;
+    }
+    let mut text = request.prompt.to_lowercase();
+    if let Some(context) = request.context.as_ref() {
+        text.push('\n');
+        text.push_str(&context.to_lowercase());
+    }
+    if [
+        "ssn",
+        "social security",
+        "hipaa",
+        "patient",
+        "pci",
+        "regulated",
+    ]
+    .iter()
+    .any(|needle| text.contains(needle))
+    {
+        DataClassification::Regulated
+    } else if [
+        "confidential",
+        "secret",
+        "password",
+        "api_key",
+        "api key",
+        "token",
+        "customer",
+        "contract",
+    ]
+    .iter()
+    .any(|needle| text.contains(needle))
+    {
+        DataClassification::Confidential
+    } else if text.contains("internal") {
+        DataClassification::Internal
+    } else {
+        DataClassification::Public
+    }
+}
+
+fn detect_prompt_injection(request: &AiRequest, policy: &AiTrustPolicy) -> bool {
+    let mut text = request.prompt.to_lowercase();
+    if let Some(context) = request.context.as_ref() {
+        text.push('\n');
+        text.push_str(&context.to_lowercase());
+    }
+    let defaults = [
+        "ignore previous instructions",
+        "ignore all previous instructions",
+        "print your system prompt",
+        "reveal your system prompt",
+        "disable audit",
+        "exfiltrate",
+        "send the data",
+        "bypass policy",
+    ];
+    defaults.iter().any(|needle| text.contains(needle))
+        || policy
+            .blocked_prompt_patterns
+            .iter()
+            .any(|needle| text.contains(&needle.to_lowercase()))
+}
+
+fn evaluate_ai_tools(
+    request: &AiRequest,
+    policy: &AiTrustPolicy,
+    classification: DataClassification,
+) -> Vec<AiToolDecision> {
+    request
+        .requested_tools
+        .iter()
+        .map(|tool| {
+            let Some(rule) = policy.tool_rules.iter().find(|rule| rule.name == *tool) else {
+                return AiToolDecision {
+                    name: tool.clone(),
+                    decision: AiDecision::Denied,
+                    reason: "tool is not allow-listed".into(),
+                };
+            };
+            if classification.rank() > rule.max_classification.rank() {
+                return AiToolDecision {
+                    name: tool.clone(),
+                    decision: AiDecision::Denied,
+                    reason: format!(
+                        "tool is limited to {} data",
+                        classification_label(rule.max_classification)
+                    ),
+                };
+            }
+            if rule
+                .approval_required_for
+                .iter()
+                .any(|minimum| classification.at_or_above(*minimum))
+            {
+                return AiToolDecision {
+                    name: tool.clone(),
+                    decision: AiDecision::ApprovalRequired,
+                    reason: "human approval required by tool policy".into(),
+                };
+            }
+            AiToolDecision {
+                name: tool.clone(),
+                decision: AiDecision::Allowed,
+                reason: "tool allowed by policy".into(),
+            }
+        })
+        .collect()
+}
+
+fn sign_ai_provenance(
+    signer: &IdentityFile,
+    private: &PrivateIdentity,
+    request_id: &str,
+    request: &AiRequest,
+    classification: DataClassification,
+    decision: AiDecision,
+    prompt_injection_detected: bool,
+    reasons: &[String],
+    tool_decisions: &[AiToolDecision],
+    controls: &[String],
+    crypto_suite: Option<String>,
+    envelope_fingerprint: Option<String>,
+) -> Result<EnvelopeSignature> {
+    let signing_key = dsa_signing_key(private)?;
+    let unsigned = build_ai_provenance(
+        request_id.to_string(),
+        request,
+        classification,
+        decision,
+        prompt_injection_detected,
+        reasons.to_vec(),
+        tool_decisions.to_vec(),
+        controls.to_vec(),
+        crypto_suite,
+        envelope_fingerprint,
+        None,
+    )?;
+    let mut bytes = canonical_bytes(&unsigned)?;
+    bytes.extend_from_slice(signer.public.fingerprint.as_bytes());
+    let sig = signing_key.sign(&bytes);
+    Ok(EnvelopeSignature {
+        algorithm: "ML-DSA-65".into(),
+        value: b64(sig.to_bytes().as_ref()),
+    })
+}
+
+fn build_ai_provenance(
+    request_id: String,
+    request: &AiRequest,
+    classification: DataClassification,
+    decision: AiDecision,
+    prompt_injection_detected: bool,
+    reasons: Vec<String>,
+    tool_decisions: Vec<AiToolDecision>,
+    controls: Vec<String>,
+    crypto_suite: Option<String>,
+    envelope_fingerprint: Option<String>,
+    signature: Option<EnvelopeSignature>,
+) -> Result<AiProvenance> {
+    Ok(AiProvenance {
+        version: VERSION,
+        request_id,
+        actor: request.actor.clone(),
+        model: request.model.clone(),
+        data_classification: classification,
+        decision,
+        prompt_injection_detected,
+        reasons,
+        requested_tools: request.requested_tools.clone(),
+        tool_decisions,
+        controls,
+        crypto_suite,
+        envelope_fingerprint,
+        created_at: Utc::now(),
+        signature,
+    })
+}
+
+fn write_ai_outputs(args: &AiEvaluateArgs, provenance: &AiProvenance) -> Result<()> {
+    write_json(&args.out, provenance)?;
+    if let Some(out) = args.access_review_out.as_ref() {
+        fs::write(out, ai_access_review_markdown(provenance))
+            .with_context(|| format!("writing {}", out.display()))?;
+        println!("wrote AI access review {}", out.display());
+    }
+    println!("wrote AI provenance {}", args.out.display());
+    Ok(())
+}
+
+fn append_ai_audit(sender_path: Option<&PathBuf>, provenance: &AiProvenance) -> Result<()> {
+    let identity_fingerprint = if let Some(path) = sender_path {
+        let sender: IdentityFile = read_json(path)?;
+        Some(sender.public.fingerprint)
+    } else {
+        None
+    };
+    append_audit(AuditDraft {
+        event_type: "ai_trust_evaluate".into(),
+        identity_fingerprint,
+        envelope_fingerprint: provenance.envelope_fingerprint.clone(),
+        sender_fingerprint: None,
+        recipient_fingerprint: None,
+        policy_result: ai_decision_label(provenance.decision).into(),
+        reason: Some(format!("ai_request_id={}", provenance.request_id)),
+        details: provenance.reasons.clone(),
+    })
+}
+
+fn ai_access_review_markdown(provenance: &AiProvenance) -> String {
+    format!(
+        "# Quantum-Safe AI Trust Access Review\n\nRequest: `{}`\nActor: `{}`\nModel: `{}`\nCreated: `{}`\n\n## Decision\n\n`{}`\n\n## Data Classification\n\n`{}`\n\n## AI Controls\n\n- Prompt injection detected: `{}`\n- Requested tools: `{}`\n- Signed provenance: `{}`\n- PQC envelope suite: `{}`\n- PQC envelope fingerprint: `{}`\n\n## Reasons\n\n{}\n\n## Tool Decisions\n\n{}\n\n## Control Mapping\n\n{}\n",
+        provenance.request_id,
+        provenance.actor,
+        provenance.model,
+        provenance.created_at,
+        ai_decision_label(provenance.decision),
+        classification_label(provenance.data_classification),
+        provenance.prompt_injection_detected,
+        if provenance.requested_tools.is_empty() {
+            "none".into()
+        } else {
+            provenance.requested_tools.join(", ")
+        },
+        provenance.signature.is_some(),
+        provenance
+            .crypto_suite
+            .as_deref()
+            .unwrap_or("not generated"),
+        provenance
+            .envelope_fingerprint
+            .as_deref()
+            .unwrap_or("not generated"),
+        provenance
+            .reasons
+            .iter()
+            .map(|reason| format!("- {reason}"))
+            .collect::<Vec<_>>()
+            .join("\n"),
+        provenance
+            .tool_decisions
+            .iter()
+            .map(|tool| format!(
+                "- `{}`: `{}` — {}",
+                tool.name,
+                ai_decision_label(tool.decision),
+                tool.reason
+            ))
+            .collect::<Vec<_>>()
+            .join("\n"),
+        provenance
+            .controls
+            .iter()
+            .map(|control| format!("- {control}"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    )
+}
+
+fn classification_label(classification: DataClassification) -> &'static str {
+    match classification {
+        DataClassification::Public => "public",
+        DataClassification::Internal => "internal",
+        DataClassification::Confidential => "confidential",
+        DataClassification::Regulated => "regulated",
+    }
+}
+
+fn ai_decision_label(decision: AiDecision) -> &'static str {
+    match decision {
+        AiDecision::Allowed => "allowed",
+        AiDecision::ApprovalRequired => "approval-required",
+        AiDecision::Denied => "denied",
+    }
+}
+
 fn audit_show() -> Result<()> {
     let path = PathBuf::from(AUDIT_LOG);
     if !path.exists() {
@@ -811,9 +1430,8 @@ fn load_private_identity(
         .sealed_private
         .as_ref()
         .ok_or_else(|| anyhow!("identity has no private material"))?;
-    let passphrase = passphrase.ok_or_else(|| {
-        anyhow!("sealed identity requires --passphrase or KEM_COURIER_PASSPHRASE")
-    })?;
+    let passphrase = passphrase
+        .ok_or_else(|| anyhow!("sealed identity requires --passphrase or QSTG_PASSPHRASE"))?;
     let plaintext = open_private_bytes(sealed, passphrase.as_bytes())?;
     Ok(serde_json::from_slice(&plaintext)?)
 }
@@ -823,8 +1441,9 @@ fn seal_private_bytes(plaintext: &[u8], passphrase: &[u8]) -> Result<SealedPriva
     let nonce = random_array::<12>()?;
     let key = derive_passphrase_key(passphrase, &salt)?;
     let cipher = Aes256Gcm::new_from_slice(&key)?;
+    let nonce_ref = Nonce::try_from(nonce.as_slice()).map_err(|_| anyhow!("invalid nonce"))?;
     let ciphertext = cipher
-        .encrypt(Nonce::from_slice(&nonce), plaintext)
+        .encrypt(&nonce_ref, plaintext)
         .map_err(|_| anyhow!("failed to seal private identity"))?;
     Ok(SealedPrivateIdentity {
         kdf: "argon2id-default".into(),
@@ -839,9 +1458,10 @@ fn open_private_bytes(sealed: &SealedPrivateIdentity, passphrase: &[u8]) -> Resu
     let nonce = b64d(&sealed.nonce)?;
     let ciphertext = b64d(&sealed.ciphertext)?;
     let key = derive_passphrase_key(passphrase, &salt)?;
+    let nonce_ref = Nonce::try_from(nonce.as_slice()).map_err(|_| anyhow!("invalid nonce"))?;
     let cipher = Aes256Gcm::new_from_slice(&key)?;
     cipher
-        .decrypt(Nonce::from_slice(&nonce), ciphertext.as_ref())
+        .decrypt(&nonce_ref, ciphertext.as_ref())
         .map_err(|_| anyhow!("failed to open sealed private identity"))
 }
 
@@ -906,10 +1526,11 @@ fn derive_key(salt: &[u8], ikm: &[u8], info: &[u8]) -> Result<[u8; 32]> {
 
 fn encrypt_blob(key: &[u8; 32], plaintext: &[u8], aad: &[u8]) -> Result<EncryptedBlob> {
     let nonce = random_array::<12>()?;
+    let nonce_ref = Nonce::try_from(nonce.as_slice()).map_err(|_| anyhow!("invalid nonce"))?;
     let cipher = Aes256Gcm::new_from_slice(key)?;
     let ciphertext = cipher
         .encrypt(
-            Nonce::from_slice(&nonce),
+            &nonce_ref,
             Payload {
                 msg: plaintext,
                 aad,
@@ -929,10 +1550,11 @@ fn decrypt_blob(key: &[u8; 32], blob: &EncryptedBlob, aad: &[u8]) -> Result<Vec<
     }
     let nonce = b64d(&blob.nonce)?;
     let ciphertext = b64d(&blob.ciphertext)?;
+    let nonce_ref = Nonce::try_from(nonce.as_slice()).map_err(|_| anyhow!("invalid nonce"))?;
     let cipher = Aes256Gcm::new_from_slice(key)?;
     cipher
         .decrypt(
-            Nonce::from_slice(&nonce),
+            &nonce_ref,
             Payload {
                 msg: ciphertext.as_ref(),
                 aad,
@@ -947,7 +1569,7 @@ fn aad_for_encryption(
     recipient: &PublicIdentity,
 ) -> Vec<u8> {
     format!(
-        "kem-courier:v1:{}:{}:{}",
+        "kem-courier-envelope:v1:{}:{}:{}",
         mode.suite(),
         sender.fingerprint,
         recipient.fingerprint

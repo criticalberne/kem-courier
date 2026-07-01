@@ -1,0 +1,29 @@
+# Baseline AI/PQC policy for the Quantum-Safe AI Trust Gateway demo.
+approved_models:
+  - approved-local-model
+blocked_prompt_patterns:
+  - ignore previous instructions
+  - print your system prompt
+  - disable audit
+  - exfiltrate
+require_pqc_envelope_for:
+  - confidential
+  - regulated
+tool_rules:
+  - name: summarize_document
+    max_classification: regulated
+    approval_required_for: []
+  - name: send_email
+    max_classification: internal
+    approval_required_for:
+      - internal
+  - name: export_data
+    max_classification: public
+    approval_required_for:
+      - public
+controls:
+  - "OWASP LLM01 Prompt Injection"
+  - "OWASP LLM02 Sensitive Information Disclosure"
+  - "OWASP LLM06 Excessive Agency"
+  - "NIST AI RMF Govern/Map/Measure/Manage"
+  - "PQC hybrid migration: ML-KEM-768 plus X25519 required for confidential evidence"

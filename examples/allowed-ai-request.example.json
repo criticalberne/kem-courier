@@ -1,0 +1,8 @@
+{
+  "actor": "alice@example.com",
+  "model": "approved-local-model",
+  "prompt": "Summarize this confidential supplier contract for legal review. Do not disclose sensitive terms outside the approved workspace.",
+  "context": "CONFIDENTIAL supplier contract with renewal terms and customer-specific pricing.",
+  "requested_tools": ["summarize_document"],
+  "data_classification": "confidential"
+}

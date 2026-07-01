@@ -665,32 +665,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "kem-courier"
-version = "0.1.0"
-dependencies = [
- "aes-gcm",
- "anyhow",
- "argon2",
- "assert_cmd",
- "base64",
- "chrono",
- "clap",
- "getrandom",
- "hkdf",
- "ml-dsa",
- "ml-kem",
- "predicates",
- "serde",
- "serde_json",
- "serde_yaml",
- "sha2",
- "tempfile",
- "uuid",
- "x25519-dalek",
- "zeroize",
-]
-
-[[package]]
 name = "libc"
 version = "0.2.186"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -860,6 +834,32 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8fd00f0bb2e90d81d1044c2b32617f68fcb9fa3bb7640c23e9c748e53fb30934"
 dependencies = [
  "unicode-ident",
+]
+
+[[package]]
+name = "qstg"
+version = "0.1.0"
+dependencies = [
+ "aes-gcm",
+ "anyhow",
+ "argon2",
+ "assert_cmd",
+ "base64",
+ "chrono",
+ "clap",
+ "getrandom",
+ "hkdf",
+ "ml-dsa",
+ "ml-kem",
+ "predicates",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "sha2",
+ "tempfile",
+ "uuid",
+ "x25519-dalek",
+ "zeroize",
 ]
 
 [[package]]

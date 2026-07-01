@@ -1,47 +1,118 @@
-# KEM Courier
+# Quantum-Safe AI Trust Gateway
 
-[![CI](https://github.com/criticalberne/kem-courier/actions/workflows/ci.yml/badge.svg)](https://github.com/criticalberne/kem-courier/actions/workflows/ci.yml)
+[![CI](https://github.com/criticalberne/quantum-safe-ai-trust-gateway/actions/workflows/ci.yml/badge.svg)](https://github.com/criticalberne/quantum-safe-ai-trust-gateway/actions/workflows/ci.yml)
 ![Rust](https://img.shields.io/badge/Rust-2024-orange)
 ![PQC](https://img.shields.io/badge/PQC-ML--KEM--768-blue)
 ![Signature](https://img.shields.io/badge/signature-ML--DSA--65-blueviolet)
+![AI Security](https://img.shields.io/badge/AI-security%20gateway-purple)
 ![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-green)
 
-KEM Courier is a CLI-first post-quantum secure file exchange prototype with enterprise PAM-style key-custody controls.
+**Quantum-Safe AI Trust Gateway** is a CLI-first security architecture project for governing sensitive AI workflows with policy-as-code, prompt-injection controls, tool governance, signed provenance, post-quantum evidence envelopes, access-review reporting, and tamper-evident audit logs.
 
-It encrypts files locally with AES-256-GCM, wraps per-file encryption keys using ML-KEM-768, optionally combines X25519 and ML-KEM-768 for hybrid migration, signs canonical envelope metadata with ML-DSA-65, and adds policy-based decryption, sealed private identities, lease-based checkout, audit logging, revocation checks, and access-review reporting.
+The CLI is named `qstg`.
 
-This is an educational security engineering project, not production-certified cryptographic software.
+The post-quantum envelope layer is the **QSTG PQC Evidence Envelope**.
 
-## Walkthrough
+This is an educational reference architecture, not production-certified cryptographic or AI-safety software.
 
-If you only have a few minutes, review these first:
+---
 
-1. [`src/main.rs`](src/main.rs) — end-to-end CLI, envelope, crypto, policy, audit, and sealed identity implementation.
-2. [`tests/cli_integration.rs`](tests/cli_integration.rs) — behavioral integration tests for hybrid round trip, sealed identity controls, access review, audit verification, and tamper rejection.
-3. [`docs/threat-model.md`](docs/threat-model.md) — attacker model, goals, non-goals, and operational risks.
-4. [`docs/crypto-agility.md`](docs/crypto-agility.md) — suite versioning, downgrade resistance, and migration notes.
-5. [`scripts/demo.sh`](scripts/demo.sh) — reproducible local demo of the complete flow.
+## Why this exists
 
-The project intentionally avoids vendor or employer branding. The enterprise design is architectural: vaulted identities, lease-based access, policy gates, revocation, auditability, and access-review output.
+Enterprises adopting AI have two security transitions happening at the same time:
 
-## What it demonstrates
+1. **AI trust governance:** model access, prompt-injection resistance, tool-use control, data classification, provenance, and auditability.
+2. **Post-quantum migration:** hybrid key establishment, signed metadata, cryptographic agility, downgrade resistance, and evidence preservation.
 
-- **Post-quantum file exchange:** ML-KEM-768 protects the file encryption key.
-- **Hybrid migration:** X25519 + ML-KEM-768 models practical crypto-agility adoption.
-- **Sender authenticity:** ML-DSA-65 signs canonical envelope metadata.
-- **Tamper detection:** signature verification fails before plaintext is written.
-- **PAM-style key custody:** sealed identities require passphrase unlock and active checkout leases.
-- **IAM-style governance:** policy files control approved senders, recipients, envelope age, key age, mode, and revocation.
-- **Auditability:** operations append to a local tamper-evident audit hash chain.
+This project demonstrates both in one working system.
+
+A confidential AI request is evaluated before action. If policy allows it, the resulting evidence is wrapped in a hybrid post-quantum envelope using ML-KEM-768 + X25519 and signed with ML-DSA-65. If the request contains prompt-injection or unsafe tool behavior, it is denied and still produces reviewable provenance.
+
+---
+
+## One-command demo
+
+```bash
+./scripts/demo-ai-pqc.sh
+```
+
+The demo:
+
+1. Builds `qstg`.
+2. Generates an AI gateway identity and a security-recipient identity.
+3. Evaluates a malicious confidential AI request with indirect prompt injection.
+4. Denies the unsafe request and writes provenance plus markdown access review.
+5. Evaluates a clean confidential summarization request.
+6. Writes signed provenance.
+7. Creates a hybrid ML-KEM/X25519 PQC evidence envelope.
+8. Inspects the evidence envelope.
+9. Verifies the audit hash chain.
+
+Expected high-level output:
+
+```text
+AI trust decision: denied
+AI trust decision: allowed
+Suite: KEMCOURIER_MLKEM768_X25519_AES256GCM_MLDSA65_HKDFSHA256_V1
+Hybrid x25519: true
+audit log verified
+```
+
+The original file-envelope demo is still available:
+
+```bash
+./scripts/demo.sh
+```
+
+---
+
+## Architecture
+
+```mermaid
+flowchart TD
+    User[Enterprise user] --> Request[AI request]
+    Request --> Gateway[qstg AI trust gateway]
+    Gateway --> Classifier[Data classification]
+    Gateway --> PromptGuard[Prompt-injection gate]
+    Gateway --> ModelPolicy[Model allowlist]
+    Gateway --> ToolPolicy[Tool governance]
+    Gateway --> Provenance[Signed AI provenance]
+    Gateway --> Review[Access review]
+    Gateway --> Envelope[QSTG PQC evidence envelope]
+    Envelope --> Recipient[Security recipient]
+    Gateway --> Audit[qstg.audit.jsonl]
+```
+
+### AI control plane
+
+- Classifies AI requests as `public`, `internal`, `confidential`, or `regulated`.
+- Detects direct and indirect prompt-injection/exfiltration indicators.
+- Enforces approved model IDs.
+- Denies unknown tools by default.
+- Limits tools by data classification.
+- Marks sensitive tools as approval-required when policy says so.
+- Produces signed provenance and markdown access-review evidence.
+
+### PQC evidence plane
+
+- Encrypts approved confidential AI artifacts into QSTG PQC evidence envelopes.
+- Uses ML-KEM-768 for post-quantum key encapsulation.
+- Uses X25519 + ML-KEM-768 hybrid mode by default.
+- Uses AES-256-GCM for payload and key wrapping.
+- Uses ML-DSA-65 for signed envelope metadata and AI provenance.
+- Authenticates suite and mode metadata to resist downgrade attacks.
+- Appends security-relevant operations to a local hash-chained audit log.
+
+---
 
 ## Cryptographic suite
 
 | Purpose | Default |
 | --- | --- |
-| Payload encryption | AES-256-GCM |
+| Payload/evidence encryption | AES-256-GCM |
 | PQC key encapsulation | ML-KEM-768 |
 | Hybrid classical key agreement | X25519 |
-| Sender authenticity | ML-DSA-65 |
+| Provenance/envelope signature | ML-DSA-65 |
 | Key derivation | HKDF-SHA256 |
 | Sealed identity KDF | Argon2id |
 | Fingerprints | SHA-256 over canonical JSON |
@@ -51,158 +122,144 @@ Supported exchange modes:
 - `pqc-only`
 - `hybrid-x25519-mlkem768`
 
-The default mode is `hybrid-x25519-mlkem768`.
+Default mode:
 
-## Quick demo
-
-```bash
-./scripts/demo.sh
+```text
+hybrid-x25519-mlkem768
 ```
 
-The demo:
+Default hybrid suite:
 
-1. Builds the CLI.
-2. Generates sender and recipient identities.
-3. Exports public identity bundles.
-4. Seals the recipient private identity.
-5. Checks out a short-lived lease.
-6. Encrypts a sample supplier-contract file with hybrid X25519 + ML-KEM-768.
-7. Decrypts under policy and lease control.
-8. Generates an access-review report.
-9. Tampers with the envelope.
-10. Confirms tampered decrypt fails.
-11. Verifies the audit hash chain.
+```text
+KEMCOURIER_MLKEM768_X25519_AES256GCM_MLDSA65_HKDFSHA256_V1
+```
 
-## Manual quick start
+---
+
+## Manual AI trust gateway flow
+
+Build:
 
 ```bash
 cargo build
-
-# Generate identities.
-target/debug/kem-courier identity generate --name sender --out sender.identity.json
-target/debug/kem-courier identity generate --name recipient --out recipient.identity.json
-
-# Export public bundles.
-target/debug/kem-courier identity export-public \
-  --identity sender.identity.json \
-  --out sender.public.json
-
-target/debug/kem-courier identity export-public \
-  --identity recipient.identity.json \
-  --out recipient.public.json
-
-# Seal recipient private identity behind a passphrase-derived AES-GCM key.
-target/debug/kem-courier identity seal \
-  --identity recipient.identity.json \
-  --out recipient.identity.sealed.json \
-  --passphrase "correct horse battery staple"
-
-# Checkout a short-lived lease for recipient private-key use.
-target/debug/kem-courier identity checkout \
-  --identity recipient.identity.sealed.json \
-  --ttl 15m \
-  --reason "authorized decrypt for supplier contract review" \
-  --out recipient.lease.json \
-  --passphrase "correct horse battery staple"
-
-# Encrypt a file.
-target/debug/kem-courier encrypt \
-  --sender sender.identity.json \
-  --recipient recipient.public.json \
-  --mode hybrid-x25519-mlkem768 \
-  --in supplier-contract.pdf \
-  --out supplier-contract.kemc
-
-# Inspect the envelope.
-target/debug/kem-courier inspect supplier-contract.kemc
-
-# Decrypt under a lease.
-target/debug/kem-courier decrypt \
-  --identity recipient.identity.sealed.json \
-  --passphrase "correct horse battery staple" \
-  --lease recipient.lease.json \
-  --sender sender.public.json \
-  --in supplier-contract.kemc \
-  --out supplier-contract.decrypted.pdf
 ```
 
-## Policy example
-
-See [`examples/enterprise-policy.example.yaml`](examples/enterprise-policy.example.yaml).
-
-```yaml
-minimum_encryption_mode: hybrid-x25519-mlkem768
-require_sender_signature: true
-require_signed_metadata: true
-allow_unsigned_envelopes: false
-max_envelope_age_days: 30
-allowed_senders:
-  - name: sender
-    fingerprint: "sha256:..."
-allowed_recipients:
-  - name: recipient
-    fingerprint: "sha256:..."
-key_lifecycle:
-  reject_expired_identity_keys: true
-  max_identity_age_days: 365
-```
-
-Use it during decryption:
+Generate identities:
 
 ```bash
-target/debug/kem-courier decrypt \
-  --policy enterprise-policy.yaml \
-  --identity recipient.identity.sealed.json \
-  --passphrase "correct horse battery staple" \
-  --lease recipient.lease.json \
-  --sender sender.public.json \
-  --in supplier-contract.kemc \
-  --out supplier-contract.decrypted.pdf
+target/debug/qstg identity generate --name ai-gateway --out gateway.identity.json
+target/debug/qstg identity generate --name security-recipient --out security-recipient.identity.json
+target/debug/qstg identity export-public \
+  --identity security-recipient.identity.json \
+  --out security-recipient.public.json
 ```
 
-## Access review
+Evaluate a malicious confidential request:
 
 ```bash
-target/debug/kem-courier access-review \
-  --policy enterprise-policy.yaml \
-  --in supplier-contract.kemc \
-  --out access-review.md
+target/debug/qstg ai evaluate \
+  --request examples/malicious-ai-request.example.json \
+  --policy examples/ai-trust-policy.example.yaml \
+  --sender gateway.identity.json \
+  --recipient security-recipient.public.json \
+  --out malicious-provenance.json \
+  --access-review-out malicious-access-review.md \
+  --envelope-out malicious-evidence.kemc
 ```
 
-The report explains the envelope suite, sender fingerprint, recipient fingerprint, signature algorithm, and policy controls that passed or failed.
-
-## Tamper demo
-
-```bash
-target/debug/kem-courier tamper supplier-contract.kemc \
-  --field suite \
-  --out tampered.kemc
-
-target/debug/kem-courier decrypt \
-  --identity recipient.identity.sealed.json \
-  --passphrase "correct horse battery staple" \
-  --lease recipient.lease.json \
-  --sender sender.public.json \
-  --in tampered.kemc \
-  --out should-not-exist.pdf
-```
-
-Expected result:
+Expected decision:
 
 ```text
-Error: envelope signature verification failed
+denied
 ```
 
-## Audit log
+Why: the request contains prompt-injection/exfiltration language and requests a tool that is not allowed for confidential data.
 
-Sensitive operations append tamper-evident JSON lines to `kem-courier.audit.jsonl` in the current working directory.
+Evaluate an allowed confidential request:
 
 ```bash
-target/debug/kem-courier audit show
-target/debug/kem-courier audit verify
+target/debug/qstg ai evaluate \
+  --request examples/allowed-ai-request.example.json \
+  --policy examples/ai-trust-policy.example.yaml \
+  --sender gateway.identity.json \
+  --recipient security-recipient.public.json \
+  --out allowed-provenance.json \
+  --access-review-out allowed-access-review.md \
+  --envelope-out allowed-evidence.kemc
 ```
 
-Each audit event includes the previous event hash and its own event hash, creating a simple local hash chain for tamper detection.
+Expected decision:
+
+```text
+allowed
+```
+
+Artifacts:
+
+| Artifact | Purpose |
+| --- | --- |
+| `allowed-provenance.json` | Signed AI trust decision. |
+| `allowed-access-review.md` | Human-readable control evidence. |
+| `allowed-evidence.kemc` | Hybrid PQC evidence envelope for the security recipient. |
+| `qstg.audit.jsonl` | Local hash-chained audit log. |
+
+Verify audit integrity:
+
+```bash
+target/debug/qstg audit verify
+```
+
+---
+
+## AI policy example
+
+See [`examples/ai-trust-policy.example.yaml`](examples/ai-trust-policy.example.yaml).
+
+```yaml
+approved_models:
+  - approved-local-model
+blocked_prompt_patterns:
+  - ignore previous instructions
+  - print your system prompt
+  - disable audit
+  - exfiltrate
+require_pqc_envelope_for:
+  - confidential
+  - regulated
+tool_rules:
+  - name: summarize_document
+    max_classification: regulated
+    approval_required_for: []
+  - name: send_email
+    max_classification: internal
+    approval_required_for:
+      - internal
+  - name: export_data
+    max_classification: public
+    approval_required_for:
+      - public
+controls:
+  - "OWASP LLM01 Prompt Injection"
+  - "OWASP LLM02 Sensitive Information Disclosure"
+  - "OWASP LLM06 Excessive Agency"
+  - "NIST AI RMF Govern/Map/Measure/Manage"
+  - "PQC hybrid migration: ML-KEM-768 plus X25519 required for confidential evidence"
+```
+
+---
+
+## What to review first
+
+1. [`scripts/demo-ai-pqc.sh`](scripts/demo-ai-pqc.sh) — one-command AI/PQC demo.
+2. [`src/main.rs`](src/main.rs) — CLI, AI trust evaluator, envelope crypto, policy, audit, and identity lifecycle.
+3. [`tests/cli_integration.rs`](tests/cli_integration.rs) — integration tests for file-envelope and AI trust workflows.
+4. [`docs/architecture/ai-pqc-trust-gateway.md`](docs/architecture/ai-pqc-trust-gateway.md) — trust-gateway architecture.
+5. [`docs/controls/ai-pqc-control-mapping.md`](docs/controls/ai-pqc-control-mapping.md) — AI/PQC control mapping.
+6. [`docs/crypto-agility.md`](docs/crypto-agility.md) — suite versioning, downgrade resistance, and migration notes.
+7. [`docs/envelope-format.md`](docs/envelope-format.md) — signed PQC evidence-envelope format.
+8. [`docs/threat-model.md`](docs/threat-model.md) — original file-envelope threat model.
+
+---
 
 ## Tests
 
@@ -217,19 +274,29 @@ The integration suite covers:
 - Access-review report controls.
 - Audit hash-chain verification.
 - Tampered envelope rejection before plaintext write.
+- AI trust denial for prompt-injection/tool-exfiltration attempts.
+- AI trust allow flow with signed provenance and PQC evidence envelope.
 
-## Project highlights
+---
 
-- Built a CLI-first post-quantum secure file exchange prototype using ML-KEM-768, AES-256-GCM, optional X25519 hybrid key establishment, and ML-DSA-65 signed metadata.
-- Modeled enterprise PAM and secrets-management workflows through sealed private identities, lease-based checkout, policy enforcement, key rotation, revocation checks, audit logging, and access-review reporting.
-- Designed a crypto-agile, versioned envelope format with authenticated algorithm metadata, key fingerprints, downgrade resistance, and tamper detection.
+## Security boundaries
 
-## Documentation
+This repository demonstrates architecture and security-engineering judgment. It does not claim production assurance.
 
-- [`docs/threat-model.md`](docs/threat-model.md)
-- [`docs/crypto-agility.md`](docs/crypto-agility.md)
-- [`docs/envelope-format.md`](docs/envelope-format.md)
-- [`SECURITY.md`](SECURITY.md)
+A production deployment would still require:
+
+- Independent cryptographic review.
+- Dependency and supply-chain review.
+- Hardware-backed key protection or enterprise KMS/HSM integration.
+- Real identity-provider integration.
+- Durable append-only audit anchoring.
+- Formal AI red-team methodology and ongoing detector evaluation.
+- Model/provider risk review.
+- Operational incident-response design.
+
+See [`SECURITY.md`](SECURITY.md).
+
+---
 
 ## License
 

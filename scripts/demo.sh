@@ -3,8 +3,8 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WORKDIR="${1:-$(mktemp -d)}"
-PASSPHRASE="${KEM_COURIER_PASSPHRASE:-correct horse battery staple}"
-BIN="$ROOT/target/debug/kem-courier"
+PASSPHRASE="${QSTG_PASSPHRASE:-correct horse battery staple}"
+BIN="$ROOT/target/debug/qstg"
 
 mkdir -p "$WORKDIR"
 cd "$ROOT"
@@ -76,4 +76,4 @@ if "$BIN" decrypt \
 fi
 "$BIN" audit verify
 
-echo "KEM Courier demo complete: $WORKDIR"
+echo "KEM Courier envelope demo complete: $WORKDIR"
