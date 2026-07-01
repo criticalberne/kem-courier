@@ -7,136 +7,171 @@
 ![AI Security](https://img.shields.io/badge/AI-security%20gateway-purple)
 ![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-green)
 
-**Quantum-Safe AI Trust Gateway** is a CLI-first security architecture project for governing sensitive AI workflows with policy-as-code, prompt-injection controls, tool governance, signed provenance, post-quantum evidence envelopes, access-review reporting, and tamper-evident audit logs.
+**Quantum-Safe AI Trust Gateway** is a working security architecture prototype for two board-level technology risks: unsafe enterprise AI adoption and post-quantum cryptographic migration.
+
+The project shows how sensitive AI requests can be governed before model execution, how unsafe AI actions can be denied with evidence, and how approved confidential AI artifacts can be wrapped in post-quantum protected evidence envelopes for future review.
 
 The CLI is named `qstg`.
-
-The post-quantum envelope layer is the **QSTG PQC Evidence Envelope**.
 
 This is an educational reference architecture, not production-certified cryptographic or AI-safety software.
 
 ---
 
-## Why this exists
+## Leadership brief
 
-Enterprises adopting AI have two security transitions happening at the same time:
+Organizations are moving sensitive work into AI systems while also preparing for a future where current public-key cryptography must be replaced or augmented. Those two transitions usually get treated separately. This project connects them.
 
-1. **AI trust governance:** model access, prompt-injection resistance, tool-use control, data classification, provenance, and auditability.
-2. **Post-quantum migration:** hybrid key establishment, signed metadata, cryptographic agility, downgrade resistance, and evidence preservation.
+qstg demonstrates a practical control pattern:
 
-This project demonstrates both in one working system.
+1. **Check the AI request before action.** Classify the data, detect prompt-injection attempts, verify the model is approved, and restrict what tools the AI can use.
+2. **Produce evidence either way.** Denied requests generate reviewable provenance. Approved confidential requests generate signed provenance and a protected evidence package.
+3. **Use crypto that can survive migration pressure.** Confidential AI evidence is wrapped with a hybrid post-quantum design using ML-KEM-768 plus X25519 and signed with ML-DSA-65.
+4. **Make the decision auditable.** The project produces access reviews, fingerprints, signed metadata, and a local tamper-evident audit chain.
+5. **Fit the enterprise stack.** The Azure path maps to Azure AI Foundry / Azure OpenAI, managed identity, Key Vault, Azure Monitor, private endpoints, and optional HashiCorp Vault-style custody.
 
-A confidential AI request is evaluated before action. If policy allows it, the resulting evidence is wrapped in a hybrid post-quantum envelope using ML-KEM-768 + X25519 and signed with ML-DSA-65. If the request contains prompt-injection or unsafe tool behavior, it is denied and still produces reviewable provenance.
+This is not a chatbot. It is a security control plane for deciding whether an AI workflow should run, what evidence must be created, and how that evidence is protected.
 
 ---
 
-## One-command demo
+## What leadership should notice
+
+| Concern | What qstg demonstrates |
+| --- | --- |
+| Sensitive data going into AI | Requests are classified before model execution. Confidential and regulated requests receive stricter controls. |
+| Prompt injection and data exfiltration | Malicious instructions are detected and denied before model/tool execution. |
+| AI tools acting too freely | Tools are allowlisted, classification-limited, and can require approval. Unknown tools fail closed. |
+| Lack of accountability | Every decision produces provenance and a human-readable access review. |
+| Future quantum risk | Confidential AI evidence is protected with a hybrid post-quantum envelope. |
+| Audit and investigation | Decisions, fingerprints, and envelope metadata are preserved in a tamper-evident audit trail. |
+| Cloud adoption | Azure AI Foundry / Azure OpenAI, Key Vault, managed identity, Monitor, and private-link deployment patterns are documented and validated. |
+
+---
+
+## Five-minute demo path
+
+Run:
 
 ```bash
 ./scripts/demo-ai-pqc.sh
 ```
 
-The demo:
+The demo shows two AI requests:
 
-1. Builds `qstg`.
-2. Generates an AI gateway identity and a security-recipient identity.
-3. Evaluates a malicious confidential AI request with indirect prompt injection.
-4. Denies the unsafe request and writes provenance plus markdown access review.
-5. Evaluates a clean confidential summarization request.
-6. Writes signed provenance.
-7. Creates a hybrid ML-KEM/X25519 PQC evidence envelope.
-8. Inspects the evidence envelope.
-9. Verifies the audit hash chain.
+### 1. Unsafe request
 
-Expected high-level output:
+A confidential request contains hidden instructions such as “ignore previous instructions,” disable audit logging, and send data away.
+
+qstg denies it.
+
+Expected signal:
 
 ```text
 AI trust decision: denied
+```
+
+The denial still produces provenance and an access review explaining why the request was blocked.
+
+### 2. Allowed request
+
+A clean confidential summarization request uses an approved model and allowed tool behavior.
+
+qstg allows it, signs the decision, creates a hybrid post-quantum evidence envelope, and verifies the audit chain.
+
+Expected signal:
+
+```text
 AI trust decision: allowed
 Suite: KEMCOURIER_MLKEM768_X25519_AES256GCM_MLDSA65_HKDFSHA256_V1
 Hybrid x25519: true
 audit log verified
 ```
 
-The original file-envelope demo is still available:
-
-```bash
-./scripts/demo.sh
-```
+This proves the control pattern end to end: deny unsafe AI, allow governed AI, preserve evidence, protect confidential output, and verify audit integrity.
 
 ---
 
-## Architecture
+## Architecture in one picture
 
 ```mermaid
 flowchart TD
-    User[Enterprise user] --> Request[AI request]
-    Request --> Gateway[qstg AI trust gateway]
-    Gateway --> Classifier[Data classification]
-    Gateway --> PromptGuard[Prompt-injection gate]
-    Gateway --> ModelPolicy[Model allowlist]
-    Gateway --> ToolPolicy[Tool governance]
-    Gateway --> Provenance[Signed AI provenance]
-    Gateway --> Review[Access review]
-    Gateway --> Envelope[QSTG PQC evidence envelope]
-    Envelope --> Recipient[Security recipient]
-    Gateway --> Audit[qstg.audit.jsonl]
+    User[User or application] --> Request[AI request]
+    Request --> Gateway[qstg trust gateway]
+    Gateway --> Classifier[Classify data]
+    Gateway --> PromptGuard[Detect injection/exfiltration]
+    Gateway --> ModelPolicy[Check approved model]
+    Gateway --> ToolPolicy[Check allowed tools]
+    Gateway --> Decision{Decision}
+    Decision -->|Denied| Denied[Signed provenance + access review]
+    Decision -->|Allowed| Envelope[Post-quantum evidence envelope]
+    Envelope --> Review[Access review]
+    Gateway --> Audit[Tamper-evident audit log]
+    Gateway --> Azure[Azure AI Foundry / OpenAI path]
 ```
-
-### AI control plane
-
-- Classifies AI requests as `public`, `internal`, `confidential`, or `regulated`.
-- Detects direct and indirect prompt-injection/exfiltration indicators.
-- Enforces approved model IDs.
-- Denies unknown tools by default.
-- Limits tools by data classification.
-- Marks sensitive tools as approval-required when policy says so.
-- Produces signed provenance and markdown access-review evidence.
-
-### PQC evidence plane
-
-- Encrypts approved confidential AI artifacts into QSTG PQC evidence envelopes.
-- Uses ML-KEM-768 for post-quantum key encapsulation.
-- Uses X25519 + ML-KEM-768 hybrid mode by default.
-- Uses AES-256-GCM for payload and key wrapping.
-- Uses ML-DSA-65 for signed envelope metadata and AI provenance.
-- Authenticates suite and mode metadata to resist downgrade attacks.
-- Appends security-relevant operations to a local hash-chained audit log.
 
 ---
 
-## Cryptographic suite
+## Azure-ready path
 
-| Purpose | Default |
+qstg includes an Azure integration path for organizations using Azure AI Foundry and Azure OpenAI.
+
+It supports an Azure policy shape for:
+
+- Azure OpenAI deployment identifiers.
+- Microsoft Entra ID / managed identity.
+- Azure Key Vault custody for sealed qstg identity and active policy.
+- Azure Monitor / Sentinel-ready audit export.
+- Private endpoint / Private Link hardening.
+- Optional HashiCorp Vault-style secret-provider configuration.
+
+Validate the Azure example policy:
+
+```bash
+target/debug/qstg config validate \
+  --policy examples/azure/azure-ai-foundry-policy.example.yaml
+```
+
+Render an Azure deployment plan:
+
+```bash
+target/debug/qstg azure plan \
+  --policy examples/azure/azure-ai-foundry-policy.example.yaml \
+  --out azure-plan.md
+```
+
+Azure reference files:
+
+- [`examples/azure/azure-ai-foundry-policy.example.yaml`](examples/azure/azure-ai-foundry-policy.example.yaml)
+- [`examples/azure/allowed-foundry-request.example.json`](examples/azure/allowed-foundry-request.example.json)
+- [`docs/azure/azure-reference-architecture.md`](docs/azure/azure-reference-architecture.md)
+- [`docs/azure/deployment-hardening.md`](docs/azure/deployment-hardening.md)
+- [`infra/azure/main.bicep`](infra/azure/main.bicep)
+
+---
+
+## What the project actually builds
+
+| Capability | Status |
 | --- | --- |
-| Payload/evidence encryption | AES-256-GCM |
-| PQC key encapsulation | ML-KEM-768 |
-| Hybrid classical key agreement | X25519 |
-| Provenance/envelope signature | ML-DSA-65 |
-| Key derivation | HKDF-SHA256 |
-| Sealed identity KDF | Argon2id |
-| Fingerprints | SHA-256 over canonical JSON |
-
-Supported exchange modes:
-
-- `pqc-only`
-- `hybrid-x25519-mlkem768`
-
-Default mode:
-
-```text
-hybrid-x25519-mlkem768
-```
-
-Default hybrid suite:
-
-```text
-KEMCOURIER_MLKEM768_X25519_AES256GCM_MLDSA65_HKDFSHA256_V1
-```
+| Local AI request evaluator | Implemented |
+| Prompt-injection / exfiltration gate | Implemented |
+| Model allowlist | Implemented |
+| Tool governance | Implemented |
+| Data classification | Implemented |
+| Signed AI provenance | Implemented |
+| Markdown access review | Implemented |
+| Hybrid ML-KEM/X25519 evidence envelope | Implemented |
+| ML-DSA signed envelope metadata | Implemented |
+| Local tamper-evident audit chain | Implemented |
+| Azure policy validation | Implemented |
+| Azure deployment-plan renderer | Implemented |
+| Azure Bicep support-resource scaffold | Implemented |
+| Live Azure OpenAI SDK calls | Not yet implemented |
+| Live Key Vault SDK adapter | Not yet implemented |
+| Production certification | Not claimed |
 
 ---
 
-## Manual AI trust gateway flow
+## Technical quick start
 
 Build:
 
@@ -173,8 +208,6 @@ Expected decision:
 denied
 ```
 
-Why: the request contains prompt-injection/exfiltration language and requests a tool that is not allowed for confidential data.
-
 Evaluate an allowed confidential request:
 
 ```bash
@@ -188,19 +221,13 @@ target/debug/qstg ai evaluate \
   --envelope-out allowed-evidence.kemc
 ```
 
-Expected decision:
-
-```text
-allowed
-```
-
-Artifacts:
+Expected artifacts:
 
 | Artifact | Purpose |
 | --- | --- |
 | `allowed-provenance.json` | Signed AI trust decision. |
 | `allowed-access-review.md` | Human-readable control evidence. |
-| `allowed-evidence.kemc` | Hybrid PQC evidence envelope for the security recipient. |
+| `allowed-evidence.kemc` | Hybrid post-quantum evidence envelope. |
 | `qstg.audit.jsonl` | Local hash-chained audit log. |
 
 Verify audit integrity:
@@ -211,99 +238,49 @@ target/debug/qstg audit verify
 
 ---
 
-## Azure AI Foundry / Azure OpenAI integration
+## Cryptographic suite
 
-qstg now includes an Azure-ready policy shape, configuration validator, deployment-plan renderer, examples, docs, and Bicep scaffold.
-
-Validate the Azure example policy:
-
-```bash
-target/debug/qstg config validate \
-  --policy examples/azure/azure-ai-foundry-policy.example.yaml
-```
-
-Render an Azure deployment plan:
-
-```bash
-target/debug/qstg azure plan \
-  --policy examples/azure/azure-ai-foundry-policy.example.yaml \
-  --out azure-plan.md
-```
-
-Azure integration defaults:
-
-| Area | Default |
+| Purpose | Default |
 | --- | --- |
-| Model provider | Azure OpenAI deployment behind Azure AI Foundry governance |
-| Auth | Microsoft Entra ID / managed identity |
-| Secret custody | Azure Key Vault |
-| Evidence archive | Storage account container for PQC envelopes |
-| Monitoring | Azure Monitor / Sentinel-ready audit export |
-| Network | Private endpoint / Private Link design |
+| Payload/evidence encryption | AES-256-GCM |
+| PQC key encapsulation | ML-KEM-768 |
+| Hybrid classical key agreement | X25519 |
+| Provenance/envelope signature | ML-DSA-65 |
+| Key derivation | HKDF-SHA256 |
+| Sealed identity KDF | Argon2id |
+| Fingerprints | SHA-256 over canonical JSON |
 
-Primary files:
+Default hybrid suite:
 
-- [`examples/azure/azure-ai-foundry-policy.example.yaml`](examples/azure/azure-ai-foundry-policy.example.yaml)
-- [`examples/azure/allowed-foundry-request.example.json`](examples/azure/allowed-foundry-request.example.json)
-- [`docs/azure/azure-reference-architecture.md`](docs/azure/azure-reference-architecture.md)
-- [`docs/azure/deployment-hardening.md`](docs/azure/deployment-hardening.md)
-- [`infra/azure/main.bicep`](infra/azure/main.bicep)
+```text
+KEMCOURIER_MLKEM768_X25519_AES256GCM_MLDSA65_HKDFSHA256_V1
+```
 
-The Azure path is Azure-native by default and portable by design. HashiCorp Vault remains an optional secret-provider shape for enterprises that already operate Vault.
+Supported exchange modes:
 
----
+- `pqc-only`
+- `hybrid-x25519-mlkem768`
 
+Default mode:
 
-## AI policy example
-
-See [`examples/ai-trust-policy.example.yaml`](examples/ai-trust-policy.example.yaml).
-
-```yaml
-approved_models:
-  - approved-local-model
-blocked_prompt_patterns:
-  - ignore previous instructions
-  - print your system prompt
-  - disable audit
-  - exfiltrate
-require_pqc_envelope_for:
-  - confidential
-  - regulated
-tool_rules:
-  - name: summarize_document
-    max_classification: regulated
-    approval_required_for: []
-  - name: send_email
-    max_classification: internal
-    approval_required_for:
-      - internal
-  - name: export_data
-    max_classification: public
-    approval_required_for:
-      - public
-controls:
-  - "OWASP LLM01 Prompt Injection"
-  - "OWASP LLM02 Sensitive Information Disclosure"
-  - "OWASP LLM06 Excessive Agency"
-  - "NIST AI RMF Govern/Map/Measure/Manage"
-  - "PQC hybrid migration: ML-KEM-768 plus X25519 required for confidential evidence"
+```text
+hybrid-x25519-mlkem768
 ```
 
 ---
 
 ## What to review first
 
+For the fastest review:
+
 1. [`scripts/demo-ai-pqc.sh`](scripts/demo-ai-pqc.sh) — one-command AI/PQC demo.
-2. [`src/main.rs`](src/main.rs) — CLI, AI trust evaluator, envelope crypto, policy, audit, and identity lifecycle.
-3. [`tests/cli_integration.rs`](tests/cli_integration.rs) — integration tests for file-envelope and AI trust workflows.
-4. [`docs/azure/azure-reference-architecture.md`](docs/azure/azure-reference-architecture.md) — Azure AI Foundry/OpenAI reference architecture.
-5. [`docs/azure/deployment-hardening.md`](docs/azure/deployment-hardening.md) — Azure deployment hardening checklist.
-6. [`infra/azure/main.bicep`](infra/azure/main.bicep) — Azure support-resource scaffold.
-7. [`docs/architecture/ai-pqc-trust-gateway.md`](docs/architecture/ai-pqc-trust-gateway.md) — trust-gateway architecture.
-8. [`docs/controls/ai-pqc-control-mapping.md`](docs/controls/ai-pqc-control-mapping.md) — AI/PQC control mapping.
-9. [`docs/crypto-agility.md`](docs/crypto-agility.md) — suite versioning, downgrade resistance, and migration notes.
-10. [`docs/envelope-format.md`](docs/envelope-format.md) — signed PQC evidence-envelope format.
-11. [`docs/threat-model.md`](docs/threat-model.md) — original file-envelope threat model.
+2. [`README.md`](README.md) — project narrative and demo path.
+3. [`docs/azure/azure-reference-architecture.md`](docs/azure/azure-reference-architecture.md) — Azure AI Foundry/OpenAI integration architecture.
+4. [`docs/azure/deployment-hardening.md`](docs/azure/deployment-hardening.md) — Azure deployment hardening checklist.
+5. [`docs/controls/ai-pqc-control-mapping.md`](docs/controls/ai-pqc-control-mapping.md) — AI/PQC control mapping.
+6. [`src/main.rs`](src/main.rs) — working implementation.
+7. [`tests/cli_integration.rs`](tests/cli_integration.rs) — behavior-driven integration tests.
+8. [`infra/azure/main.bicep`](infra/azure/main.bicep) — Azure support-resource scaffold.
 
 ---
 
@@ -328,7 +305,7 @@ The integration suite covers:
 
 ## Security boundaries
 
-This repository demonstrates architecture and security-engineering judgment. It does not claim production assurance.
+This project demonstrates architecture and security-engineering judgment. It does not claim production assurance.
 
 A production deployment would still require:
 
@@ -340,6 +317,7 @@ A production deployment would still require:
 - Formal AI red-team methodology and ongoing detector evaluation.
 - Model/provider risk review.
 - Operational incident-response design.
+- Live Azure SDK adapters and cloud-environment tests.
 
 See [`SECURITY.md`](SECURITY.md).
 
