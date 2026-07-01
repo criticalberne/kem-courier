@@ -12,7 +12,7 @@ It encrypts files locally with AES-256-GCM, wraps per-file encryption keys using
 
 This is an educational security engineering project, not production-certified cryptographic software.
 
-## Hiring-manager walkthrough
+## Walkthrough
 
 If you only have a few minutes, review these first:
 
@@ -22,7 +22,7 @@ If you only have a few minutes, review these first:
 4. [`docs/crypto-agility.md`](docs/crypto-agility.md) — suite versioning, downgrade resistance, and migration notes.
 5. [`scripts/demo.sh`](scripts/demo.sh) — reproducible local demo of the complete flow.
 
-The project intentionally avoids vendor or employer branding. The enterprise nod is architectural: vaulted identities, lease-based access, policy gates, revocation, auditability, and access-review output.
+The project intentionally avoids vendor or employer branding. The enterprise design is architectural: vaulted identities, lease-based access, policy gates, revocation, auditability, and access-review output.
 
 ## What it demonstrates
 
@@ -218,7 +218,7 @@ The integration suite covers:
 - Audit hash-chain verification.
 - Tampered envelope rejection before plaintext write.
 
-## Resume positioning
+## Project highlights
 
 - Built a CLI-first post-quantum secure file exchange prototype using ML-KEM-768, AES-256-GCM, optional X25519 hybrid key establishment, and ML-DSA-65 signed metadata.
 - Modeled enterprise PAM and secrets-management workflows through sealed private identities, lease-based checkout, policy enforcement, key rotation, revocation checks, audit logging, and access-review reporting.
