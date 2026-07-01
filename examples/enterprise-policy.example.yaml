@@ -1,0 +1,18 @@
+# Copy this file to enterprise-policy.yaml and replace fingerprints with values
+# from generated public identity files.
+minimum_encryption_mode: hybrid-x25519-mlkem768
+require_sender_signature: true
+require_signed_metadata: true
+allow_unsigned_envelopes: false
+max_envelope_age_days: 30
+allowed_senders:
+  - name: sender
+    fingerprint: "sha256:replace-with-sender-fingerprint"
+allowed_recipients:
+  - name: recipient
+    fingerprint: "sha256:replace-with-recipient-fingerprint"
+key_lifecycle:
+  reject_expired_identity_keys: true
+  max_identity_age_days: 365
+# Optional:
+# revocation_list: revoked-keys.json

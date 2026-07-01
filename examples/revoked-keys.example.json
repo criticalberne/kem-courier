@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "revoked_keys": [
+    {
+      "fingerprint": "sha256:replace-with-revoked-fingerprint",
+      "revoked_at": "2026-07-01T00:00:00Z",
+      "reason": "key rotation"
+    }
+  ]
+}

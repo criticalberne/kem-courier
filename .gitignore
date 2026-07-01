@@ -1,0 +1,13 @@
+/target/
+**/*.rs.bk
+.DS_Store
+.env
+*.identity.json
+*.identity.sealed.json
+*.public.json
+*.lease.json
+*.kemc
+*.audit.jsonl
+supplier-contract.pdf
+supplier-contract.decrypted.pdf
+access-review.md
