@@ -1,0 +1,8 @@
+{
+  "actor": "security-analyst@contoso.example",
+  "model": "azure-openai:gpt-4o-prod",
+  "prompt": "Summarize this confidential incident report for the internal security review board. Do not send data outside the approved workspace.",
+  "context": "CONFIDENTIAL incident report. A production API token was exposed in a build log and rotated within 15 minutes. Customer impact is still under review.",
+  "requested_tools": ["summarize_document"],
+  "data_classification": "confidential"
+}

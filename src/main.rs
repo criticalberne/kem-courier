@@ -59,6 +59,14 @@ enum Command {
         #[command(subcommand)]
         command: AiCommand,
     },
+    Config {
+        #[command(subcommand)]
+        command: ConfigCommand,
+    },
+    Azure {
+        #[command(subcommand)]
+        command: AzureCommand,
+    },
     Tamper(TamperArgs),
 }
 
@@ -83,6 +91,18 @@ enum AuditCommand {
 enum AiCommand {
     /// Evaluate an AI request through model, prompt, tool, data, and PQC policy controls.
     Evaluate(AiEvaluateArgs),
+}
+
+#[derive(Subcommand, Debug)]
+enum ConfigCommand {
+    /// Validate qstg AI policy and provider integration settings.
+    Validate(ConfigValidateArgs),
+}
+
+#[derive(Subcommand, Debug)]
+enum AzureCommand {
+    /// Render an Azure deployment and hardening plan from a qstg policy.
+    Plan(AzurePlanArgs),
 }
 
 #[derive(Args, Debug)]
@@ -227,6 +247,20 @@ struct AiEvaluateArgs {
     mode: ExchangeMode,
     #[arg(long, env = "QSTG_PASSPHRASE")]
     passphrase: Option<String>,
+}
+
+#[derive(Args, Debug)]
+struct ConfigValidateArgs {
+    #[arg(long)]
+    policy: PathBuf,
+}
+
+#[derive(Args, Debug)]
+struct AzurePlanArgs {
+    #[arg(long)]
+    policy: PathBuf,
+    #[arg(long)]
+    out: Option<PathBuf>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, ValueEnum, PartialEq, Eq)]
@@ -411,8 +445,46 @@ struct AiTrustPolicy {
     require_pqc_envelope_for: Vec<DataClassification>,
     #[serde(default)]
     controls: Vec<String>,
+    #[serde(default)]
+    model_provider: Option<ModelProviderConfig>,
+    #[serde(default)]
+    secret_provider: Option<SecretProviderConfig>,
+    #[serde(default)]
+    audit: Option<AuditProviderConfig>,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize)]
+struct ModelProviderConfig {
+    #[serde(rename = "type")]
+    provider_type: String,
+    endpoint: Option<String>,
+    endpoint_env: Option<String>,
+    deployment: Option<String>,
+    auth: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+struct SecretProviderConfig {
+    #[serde(rename = "type")]
+    provider_type: String,
+    vault_url: Option<String>,
+    vault_url_env: Option<String>,
+    address: Option<String>,
+    address_env: Option<String>,
+    identity_secret_name: Option<String>,
+    policy_secret_name: Option<String>,
+    recipient_secret_name: Option<String>,
+    mount: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, Default)]
+struct AuditProviderConfig {
+    #[serde(default)]
+    local_hash_chain: bool,
+    #[serde(default)]
+    azure_monitor: bool,
+    log_analytics_workspace_env: Option<String>,
+}
 #[derive(Clone, Debug, Deserialize, Serialize)]
 struct AiToolRule {
     name: String,
@@ -531,6 +603,12 @@ fn main() -> Result<()> {
         },
         Command::Ai { command } => match command {
             AiCommand::Evaluate(args) => ai_evaluate(args),
+        },
+        Command::Config { command } => match command {
+            ConfigCommand::Validate(args) => config_validate(args),
+        },
+        Command::Azure { command } => match command {
+            AzureCommand::Plan(args) => azure_plan(args),
         },
         Command::Tamper(args) => tamper(args),
     }
@@ -1093,6 +1171,218 @@ fn read_ai_trust_policy(path: &PathBuf) -> Result<AiTrustPolicy> {
     serde_yaml::from_str(&content)
         .or_else(|_| serde_json::from_str(&content))
         .with_context(|| format!("parsing AI trust policy {}", path.display()))
+}
+
+fn config_validate(args: ConfigValidateArgs) -> Result<()> {
+    let policy = read_ai_trust_policy(&args.policy)?;
+    let (errors, warnings, details) = validate_ai_trust_policy(&policy);
+    for detail in details {
+        println!("ok: {detail}");
+    }
+    for warning in warnings {
+        println!("warning: {warning}");
+    }
+    if !errors.is_empty() {
+        for error in &errors {
+            eprintln!("error: {error}");
+        }
+        bail!(
+            "configuration validation failed with {} error(s)",
+            errors.len()
+        );
+    }
+    println!("configuration valid");
+    Ok(())
+}
+
+fn azure_plan(args: AzurePlanArgs) -> Result<()> {
+    let policy = read_ai_trust_policy(&args.policy)?;
+    let (errors, warnings, _) = validate_ai_trust_policy(&policy);
+    if !errors.is_empty() {
+        for error in &errors {
+            eprintln!("error: {error}");
+        }
+        bail!("refusing to render Azure plan for invalid configuration");
+    }
+    let plan = azure_deployment_plan(&policy, &warnings);
+    if let Some(out) = args.out {
+        fs::write(&out, plan).with_context(|| format!("writing {}", out.display()))?;
+        println!("wrote Azure plan {}", out.display());
+    } else {
+        print!("{plan}");
+    }
+    Ok(())
+}
+
+fn validate_ai_trust_policy(policy: &AiTrustPolicy) -> (Vec<String>, Vec<String>, Vec<String>) {
+    let mut errors = Vec::new();
+    let mut warnings = Vec::new();
+    let mut details = Vec::new();
+
+    if policy.approved_models.is_empty() {
+        warnings
+            .push("approved_models is empty; production policies should pin deployments".into());
+    } else {
+        details.push(format!(
+            "{} approved model(s)",
+            policy.approved_models.len()
+        ));
+    }
+
+    if policy.require_pqc_envelope_for.is_empty() {
+        warnings.push(
+            "require_pqc_envelope_for is empty; confidential AI evidence will not require PQC wrapping"
+                .into(),
+        );
+    } else {
+        details.push("PQC evidence requirement configured".into());
+    }
+
+    if policy.controls.is_empty() {
+        warnings.push("controls is empty; access reviews will lack control mapping".into());
+    }
+
+    if let Some(model) = policy.model_provider.as_ref() {
+        match model.provider_type.as_str() {
+            "local" => details.push("local model provider configured".into()),
+            "azure-openai" => {
+                details.push("Azure OpenAI model provider configured".into());
+                if model.endpoint.is_none() && model.endpoint_env.is_none() {
+                    errors.push(
+                        "model_provider azure-openai requires endpoint or endpoint_env".into(),
+                    );
+                }
+                let Some(deployment) = model.deployment.as_ref() else {
+                    errors.push("model_provider azure-openai requires deployment".into());
+                    return (errors, warnings, details);
+                };
+                let expected = format!("azure-openai:{deployment}");
+                if !policy
+                    .approved_models
+                    .iter()
+                    .any(|model| model == deployment || model == &expected)
+                {
+                    warnings.push(format!(
+                        "approved_models should include `{expected}` or `{deployment}`"
+                    ));
+                }
+                match model.auth.as_deref() {
+                    Some("managed-identity") => {
+                        details.push("Azure OpenAI auth uses managed identity".into())
+                    }
+                    Some("api-key") => warnings.push(
+                        "Azure OpenAI api-key auth configured; managed-identity is preferred"
+                            .into(),
+                    ),
+                    Some(other) => errors.push(format!(
+                        "unsupported azure-openai auth `{other}`; use managed-identity or api-key"
+                    )),
+                    None => warnings.push(
+                        "model_provider azure-openai auth omitted; managed-identity is recommended"
+                            .into(),
+                    ),
+                }
+            }
+            other => errors.push(format!("unsupported model_provider type `{other}`")),
+        }
+    } else {
+        warnings.push("model_provider omitted; policy validates only local qstg evaluation".into());
+    }
+
+    if let Some(secret) = policy.secret_provider.as_ref() {
+        match secret.provider_type.as_str() {
+            "local" => details.push("local secret provider configured".into()),
+            "azure-key-vault" => {
+                details.push("Azure Key Vault secret provider configured".into());
+                if secret.vault_url.is_none() && secret.vault_url_env.is_none() {
+                    errors.push(
+                        "secret_provider azure-key-vault requires vault_url or vault_url_env"
+                            .into(),
+                    );
+                }
+                if secret.identity_secret_name.is_none() {
+                    warnings.push(
+                        "secret_provider azure-key-vault should set identity_secret_name".into(),
+                    );
+                }
+                if secret.policy_secret_name.is_none() {
+                    warnings.push(
+                        "secret_provider azure-key-vault should set policy_secret_name".into(),
+                    );
+                }
+            }
+            "hashicorp-vault" => {
+                details.push("HashiCorp Vault secret provider configured".into());
+                if secret.address.is_none() && secret.address_env.is_none() {
+                    errors.push(
+                        "secret_provider hashicorp-vault requires address or address_env".into(),
+                    );
+                }
+                if secret.mount.is_none() {
+                    errors.push("secret_provider hashicorp-vault requires mount".into());
+                }
+            }
+            other => errors.push(format!("unsupported secret_provider type `{other}`")),
+        }
+    } else {
+        warnings
+            .push("secret_provider omitted; sealed identities must come from local files".into());
+    }
+
+    if let Some(audit) = policy.audit.as_ref() {
+        if audit.azure_monitor {
+            details.push("Azure Monitor audit export requested".into());
+            if audit.log_analytics_workspace_env.is_none() {
+                errors.push(
+                    "audit.azure_monitor requires log_analytics_workspace_env for deployment wiring"
+                        .into(),
+                );
+            }
+        }
+        if audit.local_hash_chain {
+            details.push("local hash-chain audit remains enabled".into());
+        }
+    } else {
+        warnings.push("audit provider omitted; only qstg local hash chain is implied".into());
+    }
+
+    (errors, warnings, details)
+}
+
+fn azure_deployment_plan(policy: &AiTrustPolicy, warnings: &[String]) -> String {
+    let model = policy.model_provider.as_ref();
+    let secret = policy.secret_provider.as_ref();
+    let audit = policy.audit.as_ref();
+    let deployment = model
+        .and_then(|model| model.deployment.as_deref())
+        .unwrap_or("not configured");
+    let endpoint = model
+        .and_then(|model| model.endpoint.as_deref().or(model.endpoint_env.as_deref()))
+        .unwrap_or("not configured");
+    let vault = secret
+        .and_then(|secret| {
+            secret
+                .vault_url
+                .as_deref()
+                .or(secret.vault_url_env.as_deref())
+        })
+        .unwrap_or("not configured");
+    let workspace = audit
+        .and_then(|audit| audit.log_analytics_workspace_env.as_deref())
+        .unwrap_or("not configured");
+    let warnings = if warnings.is_empty() {
+        "- none".into()
+    } else {
+        warnings
+            .iter()
+            .map(|warning| format!("- {warning}"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+
+    format!(
+        "# Azure Deployment Plan for qstg\n\n## Azure services\n\n- Azure AI Foundry / Azure OpenAI deployment: `{deployment}`\n- Azure OpenAI endpoint or env var: `{endpoint}`\n- Azure Key Vault or env var: `{vault}`\n- Azure Monitor workspace env var: `{workspace}`\n- Storage account with immutable container for PQC evidence envelopes\n- User-assigned managed identity for qstg runtime\n\n## Identity and RBAC\n\n- Assign the qstg managed identity `Cognitive Services OpenAI User` on the Azure OpenAI resource for inference.\n- Assign the qstg managed identity `Key Vault Secrets User` on the vault for sealed identity and active policy reads.\n- Use a separate admin identity with write permissions for identity rotation and policy publication.\n- Prefer managed identity over Azure OpenAI API keys.\n\n## Network hardening\n\n- Use private endpoints for Azure OpenAI / Foundry resources.\n- Use a private endpoint for Azure Key Vault.\n- Use private endpoints for Storage and Log Analytics ingestion where required by policy.\n- Disable public network access for sensitive deployments when private DNS and private endpoint routing are ready.\n\n## qstg runtime configuration\n\n- Set `AZURE_OPENAI_ENDPOINT` or configure `model_provider.endpoint`.\n- Set `AZURE_KEY_VAULT_URL` or configure `secret_provider.vault_url`.\n- Set `AZURE_LOG_ANALYTICS_WORKSPACE_ID` when Azure Monitor export is enabled.\n- Set `QSTG_PASSPHRASE` only for local sealed-identity fallback flows; prefer Key Vault custody in Azure.\n\n## Evidence flow\n\n1. qstg validates the AI request against policy.\n2. Denied requests emit signed provenance and audit events without calling Azure OpenAI.\n3. Allowed confidential requests call the approved Azure OpenAI deployment.\n4. qstg wraps evidence in a hybrid ML-KEM-768/X25519 PQC envelope.\n5. qstg emits access review and audit events for Sentinel/Monitor routing.\n\n## Validation warnings\n\n{warnings}\n"
+    )
 }
 
 fn classify_ai_request(request: &AiRequest) -> DataClassification {

@@ -211,6 +211,49 @@ target/debug/qstg audit verify
 
 ---
 
+## Azure AI Foundry / Azure OpenAI integration
+
+qstg now includes an Azure-ready policy shape, configuration validator, deployment-plan renderer, examples, docs, and Bicep scaffold.
+
+Validate the Azure example policy:
+
+```bash
+target/debug/qstg config validate \
+  --policy examples/azure/azure-ai-foundry-policy.example.yaml
+```
+
+Render an Azure deployment plan:
+
+```bash
+target/debug/qstg azure plan \
+  --policy examples/azure/azure-ai-foundry-policy.example.yaml \
+  --out azure-plan.md
+```
+
+Azure integration defaults:
+
+| Area | Default |
+| --- | --- |
+| Model provider | Azure OpenAI deployment behind Azure AI Foundry governance |
+| Auth | Microsoft Entra ID / managed identity |
+| Secret custody | Azure Key Vault |
+| Evidence archive | Storage account container for PQC envelopes |
+| Monitoring | Azure Monitor / Sentinel-ready audit export |
+| Network | Private endpoint / Private Link design |
+
+Primary files:
+
+- [`examples/azure/azure-ai-foundry-policy.example.yaml`](examples/azure/azure-ai-foundry-policy.example.yaml)
+- [`examples/azure/allowed-foundry-request.example.json`](examples/azure/allowed-foundry-request.example.json)
+- [`docs/azure/azure-reference-architecture.md`](docs/azure/azure-reference-architecture.md)
+- [`docs/azure/deployment-hardening.md`](docs/azure/deployment-hardening.md)
+- [`infra/azure/main.bicep`](infra/azure/main.bicep)
+
+The Azure path is Azure-native by default and portable by design. HashiCorp Vault remains an optional secret-provider shape for enterprises that already operate Vault.
+
+---
+
+
 ## AI policy example
 
 See [`examples/ai-trust-policy.example.yaml`](examples/ai-trust-policy.example.yaml).
@@ -253,11 +296,14 @@ controls:
 1. [`scripts/demo-ai-pqc.sh`](scripts/demo-ai-pqc.sh) — one-command AI/PQC demo.
 2. [`src/main.rs`](src/main.rs) — CLI, AI trust evaluator, envelope crypto, policy, audit, and identity lifecycle.
 3. [`tests/cli_integration.rs`](tests/cli_integration.rs) — integration tests for file-envelope and AI trust workflows.
-4. [`docs/architecture/ai-pqc-trust-gateway.md`](docs/architecture/ai-pqc-trust-gateway.md) — trust-gateway architecture.
-5. [`docs/controls/ai-pqc-control-mapping.md`](docs/controls/ai-pqc-control-mapping.md) — AI/PQC control mapping.
-6. [`docs/crypto-agility.md`](docs/crypto-agility.md) — suite versioning, downgrade resistance, and migration notes.
-7. [`docs/envelope-format.md`](docs/envelope-format.md) — signed PQC evidence-envelope format.
-8. [`docs/threat-model.md`](docs/threat-model.md) — original file-envelope threat model.
+4. [`docs/azure/azure-reference-architecture.md`](docs/azure/azure-reference-architecture.md) — Azure AI Foundry/OpenAI reference architecture.
+5. [`docs/azure/deployment-hardening.md`](docs/azure/deployment-hardening.md) — Azure deployment hardening checklist.
+6. [`infra/azure/main.bicep`](infra/azure/main.bicep) — Azure support-resource scaffold.
+7. [`docs/architecture/ai-pqc-trust-gateway.md`](docs/architecture/ai-pqc-trust-gateway.md) — trust-gateway architecture.
+8. [`docs/controls/ai-pqc-control-mapping.md`](docs/controls/ai-pqc-control-mapping.md) — AI/PQC control mapping.
+9. [`docs/crypto-agility.md`](docs/crypto-agility.md) — suite versioning, downgrade resistance, and migration notes.
+10. [`docs/envelope-format.md`](docs/envelope-format.md) — signed PQC evidence-envelope format.
+11. [`docs/threat-model.md`](docs/threat-model.md) — original file-envelope threat model.
 
 ---
 
@@ -276,6 +322,7 @@ The integration suite covers:
 - Tampered envelope rejection before plaintext write.
 - AI trust denial for prompt-injection/tool-exfiltration attempts.
 - AI trust allow flow with signed provenance and PQC evidence envelope.
+- Azure policy validation and Azure deployment-plan rendering.
 
 ---
 

@@ -1,8 +1,8 @@
 # Examples
 
-This directory contains safe template files for exercising the Quantum-Safe AI Trust Gateway and the original KEM Courier file-envelope flow without committing generated private material.
+This directory contains safe template files for exercising the Quantum-Safe AI Trust Gateway without committing generated private material.
 
-## AI/PQC files
+## Local AI/PQC files
 
 - `ai-trust-policy.example.yaml` — baseline AI trust policy for approved models, prompt-injection patterns, tool governance, control mapping, and PQC evidence requirements.
 - `malicious-ai-request.example.json` — confidential request with indirect prompt-injection and exfiltration instructions; expected decision: denied.
@@ -15,6 +15,23 @@ Run:
 ```
 
 The demo generates identities, denies the malicious request, allows the safe confidential request, creates signed provenance, writes access-review markdown, creates a hybrid PQC evidence envelope, and verifies the audit chain.
+
+## Azure files
+
+- `azure/azure-ai-foundry-policy.example.yaml` — Azure AI Foundry / Azure OpenAI policy using managed identity, Key Vault custody, Azure Monitor export, and private-link control mapping.
+- `azure/allowed-foundry-request.example.json` — confidential Azure OpenAI request using an approved deployment-style model ID.
+
+Validate the Azure policy:
+
+```bash
+qstg config validate --policy azure/azure-ai-foundry-policy.example.yaml
+```
+
+Render an Azure plan:
+
+```bash
+qstg azure plan --policy azure/azure-ai-foundry-policy.example.yaml
+```
 
 ## File-envelope files
 

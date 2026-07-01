@@ -1,0 +1,59 @@
+# Azure AI Foundry / Azure OpenAI policy for qstg.
+# Uses managed identity and Key Vault custody by default.
+model_provider:
+  type: azure-openai
+  endpoint_env: AZURE_OPENAI_ENDPOINT
+  deployment: gpt-4o-prod
+  auth: managed-identity
+
+secret_provider:
+  type: azure-key-vault
+  vault_url_env: AZURE_KEY_VAULT_URL
+  identity_secret_name: qstg-gateway-identity-sealed
+  policy_secret_name: qstg-ai-policy-active
+  recipient_secret_name: qstg-security-recipient-public
+
+audit:
+  local_hash_chain: true
+  azure_monitor: true
+  log_analytics_workspace_env: AZURE_LOG_ANALYTICS_WORKSPACE_ID
+
+approved_models:
+  - azure-openai:gpt-4o-prod
+blocked_prompt_patterns:
+  - ignore previous instructions
+  - ignore all previous instructions
+  - print your system prompt
+  - reveal your system prompt
+  - disable audit
+  - exfiltrate
+  - send the data
+  - bypass policy
+require_pqc_envelope_for:
+  - confidential
+  - regulated
+tool_rules:
+  - name: summarize_document
+    max_classification: regulated
+    approval_required_for: []
+  - name: create_ticket
+    max_classification: confidential
+    approval_required_for:
+      - confidential
+  - name: send_email
+    max_classification: internal
+    approval_required_for:
+      - internal
+  - name: export_data
+    max_classification: public
+    approval_required_for:
+      - public
+controls:
+  - "OWASP LLM01 Prompt Injection"
+  - "OWASP LLM02 Sensitive Information Disclosure"
+  - "OWASP LLM06 Excessive Agency"
+  - "Azure OpenAI: Managed Identity authentication"
+  - "Azure Key Vault: sealed qstg identity custody"
+  - "Azure Private Link: model and vault network isolation"
+  - "Azure Monitor/Sentinel-ready audit export"
+  - "PQC hybrid migration: ML-KEM-768 plus X25519 required for confidential evidence"

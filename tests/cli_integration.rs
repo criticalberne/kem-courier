@@ -543,6 +543,108 @@ fn ai_trust_gateway_allows_confidential_summary_with_signed_hybrid_evidence_enve
         .stdout(contains("audit log verified"));
 }
 
+#[test]
+fn azure_ai_foundry_policy_with_managed_identity_validates_without_warnings() {
+    let dir = TempDir::new().expect("tempdir");
+    let policy = write_valid_azure_policy(&dir);
+
+    let (stdout, stderr) = command_output(
+        kem(&dir)
+            .args(["config", "validate", "--policy"])
+            .arg(&policy)
+            .assert()
+            .success(),
+    );
+
+    assert_eq!(stderr, "", "valid Azure policy should not emit stderr");
+    assert_contains_all(
+        &stdout,
+        &[
+            "ok: 1 approved model(s)",
+            "ok: PQC evidence requirement configured",
+            "ok: Azure OpenAI model provider configured",
+            "ok: Azure OpenAI auth uses managed identity",
+            "ok: Azure Key Vault secret provider configured",
+            "ok: Azure Monitor audit export requested",
+            "ok: local hash-chain audit remains enabled",
+            "configuration valid",
+        ],
+    );
+    assert!(
+        !stdout.contains("warning:"),
+        "managed-identity Azure policy should validate without warnings:\n{stdout}"
+    );
+}
+
+#[test]
+fn azure_plan_out_renders_required_services_and_no_validation_warnings() {
+    let dir = TempDir::new().expect("tempdir");
+    let policy = write_valid_azure_policy(&dir);
+
+    let (stdout, stderr) = command_output(
+        kem(&dir)
+            .args(["azure", "plan", "--policy"])
+            .arg(&policy)
+            .args(["--out", "azure-plan.md"])
+            .assert()
+            .success(),
+    );
+
+    assert_eq!(
+        stderr, "",
+        "successful Azure plan rendering should not emit stderr"
+    );
+    assert_contains_all(&stdout, &["wrote Azure plan azure-plan.md"]);
+
+    let plan = fs::read_to_string(dir.path().join("azure-plan.md")).expect("read Azure plan");
+    assert_contains_all(
+        &plan,
+        &[
+            "# Azure Deployment Plan for qstg",
+            "Azure AI Foundry / Azure OpenAI deployment: `gpt-4o-prod`",
+            "Azure OpenAI endpoint or env var: `https://qstg-openai.openai.azure.com/`",
+            "Azure Key Vault or env var: `https://qstg-vault.vault.azure.net/`",
+            "Azure Monitor workspace env var: `AZURE_LOG_ANALYTICS_WORKSPACE_ID`",
+            "User-assigned managed identity for qstg runtime",
+            "Assign the qstg managed identity `Key Vault Secrets User`",
+            "Use private endpoints for Azure OpenAI / Foundry resources.",
+            "Use a private endpoint for Azure Key Vault.",
+            "## Validation warnings\n\n- none",
+        ],
+    );
+}
+
+#[test]
+fn azure_policy_missing_endpoint_and_key_vault_url_fails_validation_with_actionable_errors() {
+    let dir = TempDir::new().expect("tempdir");
+    let policy = write_invalid_azure_policy_missing_locations(&dir);
+
+    let (stdout, stderr) = command_output(
+        kem(&dir)
+            .args(["config", "validate", "--policy"])
+            .arg(&policy)
+            .assert()
+            .failure(),
+    );
+
+    assert_contains_all(
+        &stdout,
+        &[
+            "ok: Azure OpenAI model provider configured",
+            "ok: Azure OpenAI auth uses managed identity",
+            "ok: Azure Key Vault secret provider configured",
+        ],
+    );
+    assert_contains_all(
+        &stderr,
+        &[
+            "error: model_provider azure-openai requires endpoint or endpoint_env",
+            "error: secret_provider azure-key-vault requires vault_url or vault_url_env",
+            "configuration validation failed with 2 error(s)",
+        ],
+    );
+}
+
 fn kem(dir: &TempDir) -> Command {
     let mut command = Command::cargo_bin("qstg").expect("binary exists");
     command.current_dir(dir.path());
@@ -616,6 +718,82 @@ controls:
     path
 }
 
+fn write_valid_azure_policy(dir: &TempDir) -> PathBuf {
+    write_azure_policy(
+        dir,
+        "azure-policy.yaml",
+        r#"approved_models:
+  - azure-openai:gpt-4o-prod
+blocked_prompt_patterns:
+  - ignore previous instructions
+tool_rules:
+  - name: summarize
+    max_classification: confidential
+require_pqc_envelope_for:
+  - confidential
+controls:
+  - prompt injection screening
+  - Azure OpenAI managed identity
+  - Azure Key Vault secret custody
+  - Azure Monitor audit export
+model_provider:
+  type: azure-openai
+  endpoint: https://qstg-openai.openai.azure.com/
+  deployment: gpt-4o-prod
+  auth: managed-identity
+secret_provider:
+  type: azure-key-vault
+  vault_url: https://qstg-vault.vault.azure.net/
+  identity_secret_name: qstg/identities/recipient
+  policy_secret_name: qstg/policies/ai-trust
+audit:
+  local_hash_chain: true
+  azure_monitor: true
+  log_analytics_workspace_env: AZURE_LOG_ANALYTICS_WORKSPACE_ID
+"#,
+    )
+}
+
+fn write_invalid_azure_policy_missing_locations(dir: &TempDir) -> PathBuf {
+    write_azure_policy(
+        dir,
+        "invalid-azure-policy.yaml",
+        r#"approved_models:
+  - azure-openai:gpt-4o-prod
+blocked_prompt_patterns:
+  - ignore previous instructions
+tool_rules:
+  - name: summarize
+    max_classification: confidential
+require_pqc_envelope_for:
+  - confidential
+controls:
+  - prompt injection screening
+  - Azure OpenAI managed identity
+  - Azure Key Vault secret custody
+  - Azure Monitor audit export
+model_provider:
+  type: azure-openai
+  deployment: gpt-4o-prod
+  auth: managed-identity
+secret_provider:
+  type: azure-key-vault
+  identity_secret_name: qstg/identities/recipient
+  policy_secret_name: qstg/policies/ai-trust
+audit:
+  local_hash_chain: true
+  azure_monitor: true
+  log_analytics_workspace_env: AZURE_LOG_ANALYTICS_WORKSPACE_ID
+"#,
+    )
+}
+
+fn write_azure_policy(dir: &TempDir, out: &str, yaml: &str) -> PathBuf {
+    let path = dir.path().join(out);
+    fs::write(&path, yaml).expect("write Azure policy");
+    path
+}
+
 fn write_ai_request(dir: &TempDir, out: &str, json: &str) -> PathBuf {
     let path = dir.path().join(out);
     fs::write(&path, json).expect("write AI request");
@@ -633,6 +811,13 @@ fn identity_fingerprint(path: impl AsRef<Path>) -> String {
         .and_then(Value::as_str)
         .expect("identity public fingerprint")
         .to_owned()
+}
+
+fn command_output(assert: assert_cmd::assert::Assert) -> (String, String) {
+    (
+        String::from_utf8(assert.get_output().stdout.clone()).expect("stdout is utf8"),
+        String::from_utf8(assert.get_output().stderr.clone()).expect("stderr is utf8"),
+    )
 }
 
 fn command_stdout(assert: assert_cmd::assert::Assert) -> String {
